@@ -3,14 +3,17 @@ import { ElMessageBox } from 'element-plus'
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
 
 const route = useRoute()
 const router = useRouter()
 const store = useUserStore()
+const preferences = usePreferencesStore()
 
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta.title ?? '')
+const asideWidth = computed(() => (preferences.navCollapsed ? '0px' : '200px'))
 
 /** 菜单按权限点显隐；没有权限点的菜单所有人可见。 */
 const MENUS = [
@@ -29,6 +32,7 @@ const visibleMenus = computed(() =>
 )
 
 onMounted(async () => {
+  await preferences.load()
   // 每次进入后台都刷新一次当前用户：权限调整可在下次请求即生效
   try {
     await store.loadMe()
@@ -37,6 +41,10 @@ onMounted(async () => {
   }
 })
 
+function toggleNav(): void {
+  void preferences.setNavCollapsed(!preferences.navCollapsed)
+}
+
 async function handleLogout(): Promise<void> {
   try {
     await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
@@ -44,25 +52,31 @@ async function handleLogout(): Promise<void> {
     return
   }
   await store.logout()
+  preferences.reset()
   await router.replace({ name: 'login' })
 }
 </script>
 
 <template>
   <el-container class="admin">
-    <el-aside width="200px" class="admin-aside">
+    <el-aside :width="asideWidth" class="admin-aside">
       <div class="admin-brand">剪切阀脉冲器</div>
       <el-menu :default-active="activeMenu" router class="admin-menu">
         <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
           {{ item.title }}
         </el-menu-item>
       </el-menu>
-      <div class="admin-aside-note">报表与数据导出将在阶段 5 接入</div>
+      <div class="admin-aside-note">某能源装备企业 · 设备维保管理</div>
     </el-aside>
 
     <el-container>
       <el-header class="admin-header">
-        <div class="admin-header-title">{{ currentTitle }}</div>
+        <div class="admin-header-left">
+          <el-button link class="nav-toggle" @click="toggleNav">
+            {{ preferences.navCollapsed ? '展开导航' : '收起导航' }}
+          </el-button>
+          <span class="admin-header-title">{{ currentTitle }}</span>
+        </div>
         <el-dropdown trigger="click" @command="handleLogout">
           <span class="admin-user">
             {{ store.displayName }}
@@ -95,6 +109,7 @@ async function handleLogout(): Promise<void> {
 .admin-aside {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--color-primary);
   color: #fff;
 }
@@ -142,6 +157,17 @@ async function handleLogout(): Promise<void> {
 .admin-header-title {
   font-size: 16px;
   font-weight: 600;
+}
+
+.admin-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-toggle {
+  font-size: 13px;
+  color: var(--color-primary);
 }
 
 .admin-user {

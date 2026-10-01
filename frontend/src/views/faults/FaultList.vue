@@ -7,11 +7,26 @@ import { downloadExcel } from '@/api/export'
 import { listEquipment } from '@/api/equipment'
 import { createFault, listFaults, updateFault, type FaultPayload } from '@/api/faults'
 import { usePagedList } from '@/composables/usePagedList'
+import DataTable from '@/components/DataTable.vue'
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
 import { compactParams } from '@/utils/params'
-import type { Equipment, FaultRecord } from '@/types'
+import type { Equipment, FaultRecord, TableColumn } from '@/types'
 
 const store = useUserStore()
+const preferences = usePreferencesStore()
+
+const columns: TableColumn[] = [
+  { key: 'equipment_no', label: '设备', width: 130 },
+  { key: 'occurred_at', label: '发生时间', width: 170 },
+  { key: 'position', label: '故障位置', width: 120, tooltip: true },
+  { key: 'fault_type', label: '故障类型', width: 120 },
+  { key: 'description', label: '现象描述', minWidth: 180, tooltip: true },
+  { key: 'cause', label: '原因分析', minWidth: 160, tooltip: true },
+  { key: 'solution', label: '解决方案', minWidth: 160, tooltip: true },
+  { key: 'status', label: '状态', width: 100, align: 'center' },
+  { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
+]
 
 const filters = reactive<{ equipment_id?: number; fault_type: string; status: string }>({
   equipment_id: undefined,
@@ -20,6 +35,11 @@ const filters = reactive<{ equipment_id?: number; fault_type: string; status: st
 })
 const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
   usePagedList<FaultRecord, typeof filters>(filters, listFaults)
+
+function changePageSize(size: number): void {
+  void preferences.setPageSize(size)
+  void changeSize(size)
+}
 
 const equipmentOptions = ref<Equipment[]>([])
 const typeOptions = ref<string[]>([])
@@ -40,6 +60,8 @@ const form = reactive<FaultPayload>({
 })
 
 onMounted(async () => {
+  await preferences.load()
+  pageSize.value = preferences.pageSize
   const [dict, equipmentPage] = await Promise.all([
     getDictItems(),
     listEquipment({ page: 1, page_size: 100 }),
@@ -144,32 +166,23 @@ async function exportExcel(): Promise<void> {
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.fault_type = ''; filters.status = ''; search() }">重置</el-button>
-        <el-button v-if="store.has('fault.create')" type="success" @click="openCreate">新增故障</el-button>
-        <el-button v-if="store.has('report.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 
-    <el-table v-loading="loading" :data="items" border stripe>
-      <el-table-column prop="equipment_no" label="设备" width="130" />
-      <el-table-column prop="occurred_at" label="发生时间" width="170" />
-      <el-table-column prop="position" label="故障位置" width="120" show-overflow-tooltip />
-      <el-table-column prop="fault_type" label="故障类型" width="120" />
-      <el-table-column prop="description" label="现象描述" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="cause" label="原因分析" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="solution" label="解决方案" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="status" label="状态" width="100" align="center">
-        <template #default="{ row }">
-          <el-tag :type="row.status === '已解决' ? 'success' : row.status === '处理中' ? 'warning' : 'danger'">
-            {{ row.status }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="110" fixed="right" align="center">
-        <template #default="{ row }">
-          <el-button v-if="store.has('fault.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <DataTable table-key="fault_record" :columns="columns" :data="items" :loading="loading">
+      <template #toolbar>
+        <el-button v-if="store.has('fault.create')" type="success" @click="openCreate">新增故障</el-button>
+        <el-button v-if="store.has('report.export')" @click="exportExcel">导出 Excel</el-button>
+      </template>
+      <template #cell-status="{ row }">
+        <el-tag :type="row.status === '已解决' ? 'success' : row.status === '处理中' ? 'warning' : 'danger'">
+          {{ row.status }}
+        </el-tag>
+      </template>
+      <template #cell-actions="{ row }">
+        <el-button v-if="store.has('fault.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
+      </template>
+    </DataTable>
 
     <el-pagination
       class="pager"
@@ -179,7 +192,7 @@ async function exportExcel(): Promise<void> {
       :page-sizes="[20, 50, 100]"
       layout="total, sizes, prev, pager, next"
       @current-change="changePage"
-      @size-change="changeSize"
+      @size-change="changePageSize"
     />
 
     <el-dialog v-model="dialogVisible" :title="editingId === null ? '新增故障记录' : '编辑故障记录'" width="700px">

@@ -11,10 +11,24 @@ import {
   type EquipmentPayload,
 } from '@/api/equipment'
 import { usePagedList } from '@/composables/usePagedList'
+import DataTable from '@/components/DataTable.vue'
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
-import type { Equipment } from '@/types'
+import type { Equipment, TableColumn } from '@/types'
 
 const store = useUserStore()
+const preferences = usePreferencesStore()
+
+const columns: TableColumn[] = [
+  { key: 'equipment_no', label: '脉冲编号', width: 150 },
+  { key: 'model', label: '型号', minWidth: 140, tooltip: true },
+  { key: 'status', label: '状态', width: 90, align: 'center' },
+  { key: 'total_run_hours', label: '累计时长(h)', width: 110, align: 'right' },
+  { key: 'total_run_count', label: '累计次数', width: 90, align: 'right' },
+  { key: 'company', label: '关联公司', minWidth: 140, tooltip: true },
+  { key: 'last_maintenance_at', label: '最近维保', width: 170 },
+  { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
+]
 
 const EMPTY_FORM: EquipmentPayload = {
   equipment_no: '',
@@ -34,6 +48,11 @@ const filters = reactive({ keyword: '', status: '' })
 const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
   usePagedList<Equipment, typeof filters>(filters, listEquipment)
 
+function changePageSize(size: number): void {
+  void preferences.setPageSize(size)
+  void changeSize(size)
+}
+
 const statusOptions = ref<string[]>([])
 const dialogVisible = ref(false)
 const submitting = ref(false)
@@ -48,6 +67,8 @@ const rules: FormRules = {
 }
 
 onMounted(async () => {
+  await preferences.load()
+  pageSize.value = preferences.pageSize
   const dict = await getDictItems()
   statusOptions.value = dict['设备状态'] ?? []
   await load()
@@ -138,35 +159,26 @@ async function remove(row: Equipment): Promise<void> {
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.keyword = ''; filters.status = ''; search() }">重置</el-button>
-        <el-button v-if="store.has('equipment.create')" type="success" @click="openCreate">新增设备</el-button>
       </el-form-item>
     </el-form>
 
-    <el-table v-loading="loading" :data="items" border stripe>
-      <el-table-column prop="equipment_no" label="脉冲编号" width="150">
-        <template #default="{ row }">
-          <span class="mono">{{ row.equipment_no }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="model" label="型号" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="status" label="状态" width="90" align="center">
-        <template #default="{ row }">
-          <el-tag :type="row.status === '在用' ? 'success' : row.status === '维保' ? 'warning' : 'info'">
-            {{ row.status }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="total_run_hours" label="累计时长(h)" width="110" align="right" />
-      <el-table-column prop="total_run_count" label="累计次数" width="90" align="right" />
-      <el-table-column prop="company" label="关联公司" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="last_maintenance_at" label="最近维保" width="170" />
-      <el-table-column label="操作" width="140" fixed="right" align="center">
-        <template #default="{ row }">
-          <el-button v-if="store.has('equipment.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="store.has('equipment.delete')" link type="danger" @click="remove(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <DataTable table-key="equipment" :columns="columns" :data="items" :loading="loading">
+      <template #toolbar>
+        <el-button v-if="store.has('equipment.create')" type="success" @click="openCreate">新增设备</el-button>
+      </template>
+      <template #cell-equipment_no="{ row }">
+        <span class="mono">{{ row.equipment_no }}</span>
+      </template>
+      <template #cell-status="{ row }">
+        <el-tag :type="row.status === '在用' ? 'success' : row.status === '维保' ? 'warning' : 'info'">
+          {{ row.status }}
+        </el-tag>
+      </template>
+      <template #cell-actions="{ row }">
+        <el-button v-if="store.has('equipment.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
+        <el-button v-if="store.has('equipment.delete')" link type="danger" @click="remove(row)">删除</el-button>
+      </template>
+    </DataTable>
 
     <el-pagination
       class="pager"
@@ -176,7 +188,7 @@ async function remove(row: Equipment): Promise<void> {
       :page-sizes="[20, 50, 100]"
       layout="total, sizes, prev, pager, next"
       @current-change="changePage"
-      @size-change="changeSize"
+      @size-change="changePageSize"
     />
 
     <el-dialog v-model="dialogVisible" :title="editingId === null ? '新增设备' : '编辑设备'" width="720px">

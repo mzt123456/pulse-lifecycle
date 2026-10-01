@@ -151,3 +151,16 @@ export interface ImportSummary {
   failed: number
   errors: string[]
 }
+
+/** 可配置列表的列定义：列顺序与显隐由用户偏好保存。 */
+export interface TableColumn {
+  key: string
+  label: string
+  width?: number | string
+  minWidth?: number | string
+  align?: 'left' | 'center' | 'right'
+  fixed?: boolean | 'left' | 'right'
+  tooltip?: boolean
+  /** 默认不显示的列：可在「列设置」里勾选显示 */
+  defaultHidden?: boolean
+}

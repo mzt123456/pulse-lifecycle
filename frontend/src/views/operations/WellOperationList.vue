@@ -13,11 +13,36 @@ import {
   type OperationPayload,
 } from '@/api/operations'
 import { usePagedList } from '@/composables/usePagedList'
+import DataTable from '@/components/DataTable.vue'
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
 import { compactParams } from '@/utils/params'
-import type { Equipment, WellOperation } from '@/types'
+import type { Equipment, TableColumn, WellOperation } from '@/types'
 
 const store = useUserStore()
+const preferences = usePreferencesStore()
+
+const columns: TableColumn[] = [
+  { key: 'equipment_no', label: '设备', width: 130 },
+  { key: 'well_no', label: '井号', width: 120, tooltip: true },
+  { key: 'start_date', label: '入井时间', width: 170 },
+  { key: 'end_date', label: '出井时间', width: 170 },
+  { key: 'run_hours', label: '时长(h)', width: 90, align: 'right' },
+  { key: 'footage', label: '进尺(m)', width: 100, align: 'right' },
+  { key: 'well_depth', label: '井深(m)', width: 100, align: 'right' },
+  { key: 'mud_density', label: '泥浆密度', width: 100, align: 'right' },
+  { key: 'instrument_type', label: '仪器类型', width: 110 },
+  { key: 'operator_name', label: '作业人员', width: 110, tooltip: true },
+  { key: 'bit_size', label: '井眼尺寸', width: 100, defaultHidden: true },
+  { key: 'mud_type', label: '泥浆类型', width: 110, defaultHidden: true },
+  { key: 'flow_rate', label: '排量', width: 100, defaultHidden: true },
+  { key: 'temperature', label: '井下温度', width: 110, defaultHidden: true },
+  { key: 'run_in_depth', label: '入井井深', width: 110, defaultHidden: true },
+  { key: 'run_out_depth', label: '出井井深', width: 110, defaultHidden: true },
+  { key: 'instrument_config', label: '仪器配置', width: 140, defaultHidden: true },
+  { key: 'remark', label: '备注', minWidth: 160, tooltip: true, defaultHidden: true },
+  { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
+]
 
 const EMPTY_FORM: OperationPayload = {
   equipment_id: undefined,
@@ -44,6 +69,11 @@ const filters = reactive<{ equipment_id?: number; well_no: string }>({ equipment
 const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
   usePagedList<WellOperation, typeof filters>(filters, listOperations)
 
+function changePageSize(size: number): void {
+  void preferences.setPageSize(size)
+  void changeSize(size)
+}
+
 const equipmentOptions = ref<Equipment[]>([])
 const instrumentTypes = ref<string[]>([])
 const dialogVisible = ref(false)
@@ -54,6 +84,8 @@ const form = reactive<OperationPayload>({ ...EMPTY_FORM })
 const computedHint = ref('')
 
 onMounted(async () => {
+  await preferences.load()
+  pageSize.value = preferences.pageSize
   const [dict, equipmentPage] = await Promise.all([
     getDictItems(),
     listEquipment({ page: 1, page_size: 100 }),
@@ -184,33 +216,22 @@ async function exportExcel(): Promise<void> {
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.well_no = ''; search() }">重置</el-button>
-        <el-button v-if="store.has('well_operation.create')" type="success" @click="openCreate">新增记录</el-button>
-        <el-button v-if="store.has('well_operation.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 
-    <el-table v-loading="loading" :data="items" border stripe>
-      <el-table-column prop="equipment_no" label="设备" width="130">
-        <template #default="{ row }">
-          <span class="mono">{{ row.equipment_no }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="well_no" label="井号" width="120" show-overflow-tooltip />
-      <el-table-column prop="start_date" label="入井时间" width="170" />
-      <el-table-column prop="end_date" label="出井时间" width="170" />
-      <el-table-column prop="run_hours" label="时长(h)" width="90" align="right" />
-      <el-table-column prop="footage" label="进尺(m)" width="100" align="right" />
-      <el-table-column prop="well_depth" label="井深(m)" width="100" align="right" />
-      <el-table-column prop="mud_density" label="泥浆密度" width="100" align="right" />
-      <el-table-column prop="instrument_type" label="仪器类型" width="110" />
-      <el-table-column prop="operator_name" label="作业人员" width="110" show-overflow-tooltip />
-      <el-table-column label="操作" width="140" fixed="right" align="center">
-        <template #default="{ row }">
-          <el-button v-if="store.has('well_operation.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="store.has('well_operation.delete')" link type="danger" @click="remove(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <DataTable table-key="well_operation" :columns="columns" :data="items" :loading="loading">
+      <template #toolbar>
+        <el-button v-if="store.has('well_operation.create')" type="success" @click="openCreate">新增记录</el-button>
+        <el-button v-if="store.has('well_operation.export')" @click="exportExcel">导出 Excel</el-button>
+      </template>
+      <template #cell-equipment_no="{ row }">
+        <span class="mono">{{ row.equipment_no }}</span>
+      </template>
+      <template #cell-actions="{ row }">
+        <el-button v-if="store.has('well_operation.update')" link type="primary" @click="openEdit(row)">编辑</el-button>
+        <el-button v-if="store.has('well_operation.delete')" link type="danger" @click="remove(row)">删除</el-button>
+      </template>
+    </DataTable>
 
     <el-pagination
       class="pager"
@@ -220,7 +241,7 @@ async function exportExcel(): Promise<void> {
       :page-sizes="[20, 50, 100]"
       layout="total, sizes, prev, pager, next"
       @current-change="changePage"
-      @size-change="changeSize"
+      @size-change="changePageSize"
     />
 
     <el-dialog v-model="dialogVisible" :title="editingId === null ? '新增使用记录' : '编辑使用记录'" width="820px">

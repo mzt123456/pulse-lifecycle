@@ -12,10 +12,24 @@ import {
 } from '@/api/consumables'
 import { downloadExcel } from '@/api/export'
 import { usePagedList } from '@/composables/usePagedList'
+import DataTable from '@/components/DataTable.vue'
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
-import type { Consumable, ImportSummary } from '@/types'
+import type { Consumable, ImportSummary, TableColumn } from '@/types'
 
 const store = useUserStore()
+const preferences = usePreferencesStore()
+
+const columns: TableColumn[] = [
+  { key: 'part_no', label: '部件号', width: 150 },
+  { key: 'description', label: '中文描述', minWidth: 180, tooltip: true },
+  { key: 'quantity', label: '库存', width: 100, align: 'right' },
+  { key: 'safety_stock', label: '安全库存', width: 100, align: 'right' },
+  { key: 'unit', label: '单位', width: 80, align: 'center' },
+  { key: 'remark', label: '备注', minWidth: 150, tooltip: true },
+  { key: 'updated_at', label: '更新时间', width: 170, defaultHidden: true },
+  { key: 'actions', label: '操作', width: 150, fixed: 'right', align: 'center' },
+]
 
 const filters = reactive<{ keyword: string; low_stock_only: boolean }>({
   keyword: '',
@@ -23,6 +37,11 @@ const filters = reactive<{ keyword: string; low_stock_only: boolean }>({
 })
 const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
   usePagedList<Consumable, typeof filters>(filters, listConsumables)
+
+function changePageSize(size: number): void {
+  void preferences.setPageSize(size)
+  void changeSize(size)
+}
 
 const dialogVisible = ref(false)
 const issueVisible = ref(false)
@@ -44,7 +63,11 @@ const issueForm = reactive<{ consumable: Consumable | null; quantity: number; re
   remark: '',
 })
 
-onMounted(load)
+onMounted(async () => {
+  await preferences.load()
+  pageSize.value = preferences.pageSize
+  await load()
+})
 
 function openCreate(): void {
   editingId.value = null
@@ -153,17 +176,6 @@ async function exportUsages(): Promise<void> {
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.keyword = ''; filters.low_stock_only = false; search() }">重置</el-button>
-        <el-button v-if="store.has('consumable.create')" type="success" @click="openCreate">新增耗材</el-button>
-        <el-button v-if="store.has('report.export')" @click="exportUsages">导出领用明细</el-button>
-        <el-upload
-          v-if="store.has('consumable.import')"
-          class="import-upload"
-          :show-file-list="false"
-          accept=".xlsx"
-          :before-upload="handleImport"
-        >
-          <el-button type="warning">导入 Excel</el-button>
-        </el-upload>
       </el-form-item>
     </el-form>
 
@@ -181,29 +193,32 @@ async function exportUsages(): Promise<void> {
       </ul>
     </el-alert>
 
-    <el-table v-loading="loading" :data="items" border stripe>
-      <el-table-column prop="part_no" label="部件号" width="150">
-        <template #default="{ row }">
-          <span class="mono">{{ row.part_no }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="description" label="中文描述" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="quantity" label="库存" width="100" align="right">
-        <template #default="{ row }">
-          <el-tag v-if="row.quantity <= row.safety_stock" type="danger">{{ row.quantity }}</el-tag>
-          <span v-else>{{ row.quantity }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="safety_stock" label="安全库存" width="100" align="right" />
-      <el-table-column prop="unit" label="单位" width="80" align="center" />
-      <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
-      <el-table-column label="操作" width="150" fixed="right" align="center">
-        <template #default="{ row }">
-          <el-button v-if="store.has('consumable.issue')" link type="primary" @click="openIssue(row)">领用</el-button>
-          <el-button v-if="store.has('consumable.create')" link type="primary" @click="openEdit(row)">编辑</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <DataTable table-key="consumable" :columns="columns" :data="items" :loading="loading">
+      <template #toolbar>
+        <el-button v-if="store.has('consumable.create')" type="success" @click="openCreate">新增耗材</el-button>
+        <el-button v-if="store.has('report.export')" @click="exportUsages">导出领用明细</el-button>
+        <el-upload
+          v-if="store.has('consumable.import')"
+          class="import-upload"
+          :show-file-list="false"
+          accept=".xlsx"
+          :before-upload="handleImport"
+        >
+          <el-button type="warning">导入 Excel</el-button>
+        </el-upload>
+      </template>
+      <template #cell-part_no="{ row }">
+        <span class="mono">{{ row.part_no }}</span>
+      </template>
+      <template #cell-quantity="{ row }">
+        <el-tag v-if="row.quantity <= row.safety_stock" type="danger">{{ row.quantity }}</el-tag>
+        <span v-else>{{ row.quantity }}</span>
+      </template>
+      <template #cell-actions="{ row }">
+        <el-button v-if="store.has('consumable.issue')" link type="primary" @click="openIssue(row)">领用</el-button>
+        <el-button v-if="store.has('consumable.create')" link type="primary" @click="openEdit(row)">编辑</el-button>
+      </template>
+    </DataTable>
 
     <el-pagination
       class="pager"
@@ -213,7 +228,7 @@ async function exportUsages(): Promise<void> {
       :page-sizes="[20, 50, 100]"
       layout="total, sizes, prev, pager, next"
       @current-change="changePage"
-      @size-change="changeSize"
+      @size-change="changePageSize"
     />
 
     <el-dialog v-model="dialogVisible" :title="editingId === null ? '新增耗材' : '编辑耗材'" width="620px">

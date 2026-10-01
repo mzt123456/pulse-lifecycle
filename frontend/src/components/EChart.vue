@@ -26,6 +26,7 @@ const props = defineProps<{ option: EChartsOption; height?: string }>()
 
 const element = ref<HTMLDivElement>()
 let chart: echarts.ECharts | null = null
+let observer: ResizeObserver | null = null
 
 function resize(): void {
   chart?.resize()
@@ -37,6 +38,9 @@ onMounted(() => {
   }
   chart = echarts.init(element.value)
   chart.setOption(props.option)
+  // 监听容器尺寸：侧边导航收起、窗口缩放都要让图表跟着重排，1366 宽度下不挤压
+  observer = new ResizeObserver(resize)
+  observer.observe(element.value)
   window.addEventListener('resize', resize)
 })
 
@@ -48,6 +52,8 @@ watch(
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize)
+  observer?.disconnect()
+  observer = null
   chart?.dispose()
   chart = null
 })

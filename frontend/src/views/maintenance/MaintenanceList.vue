@@ -15,12 +15,28 @@ import {
 } from '@/api/maintenance'
 import { usePagedList } from '@/composables/usePagedList'
 import AttachmentPanel from '@/components/AttachmentPanel.vue'
+import DataTable from '@/components/DataTable.vue'
+import { usePreferencesStore } from '@/store/preferences'
 import { useUserStore } from '@/store/user'
 import { compactParams } from '@/utils/params'
-import type { Equipment, MaintenanceOrder, MaintenanceStep } from '@/types'
+import type { Equipment, MaintenanceOrder, MaintenanceStep, TableColumn } from '@/types'
 
 const store = useUserStore()
+const preferences = usePreferencesStore()
 const STATUSES = ['进行中', '已完成']
+
+const columns: TableColumn[] = [
+  { key: 'order_no', label: '工单号', width: 170 },
+  { key: 'equipment_no', label: '设备', width: 130 },
+  { key: 'level', label: '等级', width: 110 },
+  { key: 'start_date', label: '开始日期', width: 120 },
+  { key: 'end_date', label: '结束日期', width: 120 },
+  { key: 'status', label: '状态', width: 100, align: 'center' },
+  { key: 'result', label: '结果', width: 100 },
+  { key: 'oil_level', label: '油位(mm)', width: 110, align: 'right' },
+  { key: 'suggestion', label: '维保建议', minWidth: 180, tooltip: true },
+  { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
+]
 
 const filters = reactive<{ equipment_id?: number; level: string; status: string }>({
   equipment_id: undefined,
@@ -29,6 +45,11 @@ const filters = reactive<{ equipment_id?: number; level: string; status: string 
 })
 const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
   usePagedList<MaintenanceOrder, typeof filters>(filters, listMaintenanceOrders)
+
+function changePageSize(size: number): void {
+  void preferences.setPageSize(size)
+  void changeSize(size)
+}
 
 const equipmentOptions = ref<Equipment[]>([])
 const levelOptions = ref<string[]>([])
@@ -58,6 +79,8 @@ const doneCount = computed(() => detail.value?.steps?.filter((step) => step.is_d
 const stepCount = computed(() => detail.value?.steps?.length ?? 0)
 
 onMounted(async () => {
+  await preferences.load()
+  pageSize.value = preferences.pageSize
   const [dict, equipmentPage] = await Promise.all([
     getDictItems(),
     listEquipment({ page: 1, page_size: 100 }),
@@ -216,37 +239,26 @@ async function exportExcel(): Promise<void> {
       <el-form-item>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.level = ''; filters.status = ''; search() }">重置</el-button>
-        <el-button v-if="store.has('maintenance.create')" type="success" @click="openCreate">创建工单</el-button>
-        <el-button v-if="store.has('maintenance.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 
-    <el-table v-loading="loading" :data="items" border stripe>
-      <el-table-column prop="order_no" label="工单号" width="170">
-        <template #default="{ row }">
-          <span class="mono">{{ row.order_no }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="equipment_no" label="设备" width="130" />
-      <el-table-column prop="level" label="等级" width="110" />
-      <el-table-column prop="start_date" label="开始日期" width="120" />
-      <el-table-column prop="end_date" label="结束日期" width="120" />
-      <el-table-column prop="status" label="状态" width="100" align="center">
-        <template #default="{ row }">
-          <el-tag :type="row.status === '已完成' ? 'success' : 'warning'">{{ row.status }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="result" label="结果" width="100" />
-      <el-table-column prop="oil_level" label="油位(mm)" width="110" align="right" />
-      <el-table-column prop="suggestion" label="维保建议" min-width="180" show-overflow-tooltip />
-      <el-table-column label="操作" width="110" fixed="right" align="center">
-        <template #default="{ row }">
-          <el-button link type="primary" @click="openDetail(row.id)">
-            {{ store.has('maintenance.update') ? '详情 / 编辑' : '详情' }}
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <DataTable table-key="maintenance_order" :columns="columns" :data="items" :loading="loading">
+      <template #toolbar>
+        <el-button v-if="store.has('maintenance.create')" type="success" @click="openCreate">创建工单</el-button>
+        <el-button v-if="store.has('maintenance.export')" @click="exportExcel">导出 Excel</el-button>
+      </template>
+      <template #cell-order_no="{ row }">
+        <span class="mono">{{ row.order_no }}</span>
+      </template>
+      <template #cell-status="{ row }">
+        <el-tag :type="row.status === '已完成' ? 'success' : 'warning'">{{ row.status }}</el-tag>
+      </template>
+      <template #cell-actions="{ row }">
+        <el-button link type="primary" @click="openDetail(row.id)">
+          {{ store.has('maintenance.update') ? '详情 / 编辑' : '详情' }}
+        </el-button>
+      </template>
+    </DataTable>
 
     <el-pagination
       class="pager"
@@ -256,7 +268,7 @@ async function exportExcel(): Promise<void> {
       :page-sizes="[20, 50, 100]"
       layout="total, sizes, prev, pager, next"
       @current-change="changePage"
-      @size-change="changeSize"
+      @size-change="changePageSize"
     />
 
     <el-dialog v-model="createVisible" title="创建维保工单" width="620px">
