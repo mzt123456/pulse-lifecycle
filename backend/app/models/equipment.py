@@ -21,7 +21,7 @@ class Equipment(Base, PkMixin, AuditMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="待命", comment="状态")
     factory_date: Mapped[date | None] = mapped_column(Date, comment="出厂日期")
     total_run_hours: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2), nullable=False, default=0, comment="累计使用时长（小时）"
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), comment="累计使用时长（小时）"
     )
     total_run_count: Mapped[int] = mapped_column(default=0, nullable=False, comment="累计使用次数")
     temperature_grade: Mapped[str | None] = mapped_column(String(32), comment="温度等级")
@@ -47,7 +47,7 @@ class Component(Base, PkMixin, AuditMixin):
     name: Mapped[str] = mapped_column(String(64), nullable=False, comment="部件名称")
     spec: Mapped[str | None] = mapped_column(String(64), comment="规格型号")
     total_run_hours: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2), nullable=False, default=0, comment="累计使用时长（小时）"
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), comment="累计使用时长（小时）"
     )
     status: Mapped[str | None] = mapped_column(String(16), comment="状态")
     installed_at: Mapped[date | None] = mapped_column(Date, comment="安装日期")

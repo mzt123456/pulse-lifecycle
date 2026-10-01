@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import get_session_factory
+from app.models.system import DictItem
 from app.models.user import Permission, Role, RolePermission, User, UserRole
 
 # 权限点按“模块 + 操作”定义，对应编写报告 3.2 的模块与 5.3 的接口清单
@@ -87,10 +88,39 @@ ROLE_PERMISSIONS: dict[str, list[str] | None] = {
     ],
 }
 
+# 基础字典：选项由业务确认后入库，不再散落在代码里（编写报告 14.1）
+DICT_ITEMS: list[tuple[str, str, str]] = [
+    ("设备状态", "在用", "在用"),
+    ("设备状态", "待命", "待命"),
+    ("设备状态", "维保", "维保"),
+    ("设备状态", "报废", "报废"),
+    ("仪器类型", "卓灵系列", "卓灵系列"),
+    ("仪器类型", "APS", "APS"),
+    ("仪器类型", "YST-48R", "YST-48R"),
+    ("仪器类型", "其它", "其它"),
+    ("故障类型", "电气故障", "电气故障"),
+    ("故障类型", "机械故障", "机械故障"),
+    ("故障类型", "密封失效", "密封失效"),
+    ("故障类型", "信号异常", "信号异常"),
+    ("故障类型", "其它", "其它"),
+    ("维保等级", "一级维保", "一级维保"),
+    ("维保等级", "二级维保", "二级维保"),
+    ("维保等级", "三级维保", "三级维保"),
+    ("维保等级", "四级维保", "四级维保"),
+    ("故障处理状态", "待处理", "待处理"),
+    ("故障处理状态", "处理中", "处理中"),
+    ("故障处理状态", "已解决", "已解决"),
+]
+
 
 def seed(db: Session, admin_username: str, admin_password: str, admin_name: str) -> dict[str, int]:
     """写入权限点、内置角色与初始管理员；已存在的不重复创建。"""
-    summary = {"permissions_created": 0, "roles_created": 0, "admin_created": 0}
+    summary = {
+        "permissions_created": 0,
+        "roles_created": 0,
+        "admin_created": 0,
+        "dict_items_created": 0,
+    }
 
     permission_by_code: dict[str, Permission] = {}
     for code, module, action, description in PERMISSIONS:
@@ -140,6 +170,18 @@ def seed(db: Session, admin_username: str, admin_password: str, admin_name: str)
         db.flush()
         db.add(UserRole(user_id=admin.id, role_id=role_by_name["系统管理员"].id))
         summary["admin_created"] = 1
+
+    existing_dict = {
+        (category, code)
+        for category, code in db.execute(select(DictItem.category, DictItem.code)).all()
+    }
+    for sort_order, (category, code, label) in enumerate(DICT_ITEMS):
+        if (category, code) in existing_dict:
+            continue
+        db.add(
+            DictItem(category=category, code=code, label=label, sort_order=sort_order, is_active=True)
+        )
+        summary["dict_items_created"] += 1
 
     db.commit()
     return summary

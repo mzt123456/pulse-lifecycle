@@ -12,7 +12,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
@@ -22,7 +22,7 @@ from app.core.security import hash_password
 from app.db.seed import seed
 from app.db.session import get_db
 from app.main import create_app
-from app.models.user import User
+from app.models.user import Role, User, UserRole
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -147,3 +147,40 @@ def api_client(seeded: None, session_factory: sessionmaker[Session]) -> Iterator
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+def _login_headers(client: TestClient, username: str, password: str) -> dict[str, str]:
+    response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+@pytest.fixture(scope="session")
+def auth_headers(api_client: TestClient, test_admin: dict[str, str]) -> dict[str, str]:
+    """系统管理员登录后的请求头。"""
+    return _login_headers(api_client, test_admin["username"], test_admin["password"])
+
+
+@pytest.fixture(scope="session")
+def readonly_headers(
+    api_client: TestClient, session_factory: sessionmaker[Session]
+) -> dict[str, str]:
+    """只读用户登录后的请求头，用于验证权限确实在后端生效。"""
+    password = "readonly-password"
+    with session_factory() as session:
+        user = session.execute(
+            select(User).where(User.username == "readonly_test")
+        ).scalar_one_or_none()
+        if user is None:
+            user = User(
+                username="readonly_test",
+                password_hash=hash_password(password),
+                real_name="只读测试",
+                is_active=True,
+            )
+            session.add(user)
+            session.flush()
+            role = session.execute(select(Role).where(Role.name == "只读用户")).scalar_one()
+            session.add(UserRole(user_id=user.id, role_id=role.id))
+            session.commit()
+    return _login_headers(api_client, "readonly_test", password)

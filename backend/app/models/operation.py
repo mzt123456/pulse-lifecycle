@@ -4,9 +4,10 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import DateTime, ForeignKey, Index, Numeric, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.equipment import Equipment
 from app.models.mixins import ID_TYPE, AuditMixin, PkMixin
 
 
@@ -39,6 +40,13 @@ class WellOperation(Base, PkMixin, AuditMixin):
     instrument_config: Mapped[str | None] = mapped_column(String(128), comment="仪器配置")
     operator_name: Mapped[str | None] = mapped_column(String(64), comment="作业人员")
     remark: Mapped[str | None] = mapped_column(String(255), comment="备注")
+
+    equipment: Mapped[Equipment] = relationship(lazy="joined")
+
+    @property
+    def equipment_no(self) -> str | None:
+        """脉冲编号，列表与详情直接展示，避免前端再查一次。"""
+        return self.equipment.equipment_no if self.equipment is not None else None
 
 
 class MeasurementRecord(Base, PkMixin, AuditMixin):
