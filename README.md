@@ -46,8 +46,8 @@ docker compose -f dev/docker-compose.dev.yml down       # 停库
 
 ## 分支约定
 
-主分支是 `main`。一项改动从 `main` 拉一条功能分支，命名带 `feat-` 或 `fix-` 前缀，
-完成后合并回 `main` 并删除该分支。
+主分支是 `main`。一项改动从 `main` 拉一条分支，命名按改动类型带前缀：
+`feat-` 是新功能，`fix-` 是修缺陷，`docs-` 是文档改动；完成后合并回 `main` 并删除该分支。
 
 ## 当前进度
 
