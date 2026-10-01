@@ -20,7 +20,7 @@ from sqlalchemy.pool import NullPool
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.seed import seed
-from app.db.session import get_db
+from app.db.session import configure_engine, get_db
 from app.main import create_app
 from app.models.user import Role, User, UserRole
 
@@ -93,6 +93,8 @@ def migrated(alembic_config: Config, test_database_url: str) -> Iterator[str]:
 def session_factory(migrated: str) -> Iterator[sessionmaker[Session]]:
     engine = create_engine(migrated, poolclass=NullPool)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    # 审计写入等自建会话的代码也要落到测试库，不能写进开发库
+    configure_engine(engine, factory)
     yield factory
     engine.dispose()
 
@@ -105,19 +107,42 @@ def seeded(
         seed(session, test_admin["username"], test_admin["password"], test_admin["name"])
 
 
-@pytest.fixture(scope="session")
+def _ensure_user(
+    session_factory: sessionmaker[Session],
+    *,
+    username: str,
+    password: str,
+    real_name: str,
+    role_name: str | None = None,
+) -> int:
+    """确保账号存在（迁移回退用例会清空业务数据，所以每次用到时都确认一次）。"""
+    with session_factory() as session:
+        user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
+        if user is None:
+            user = User(
+                username=username,
+                password_hash=hash_password(password),
+                real_name=real_name,
+                is_active=True,
+            )
+            session.add(user)
+            session.flush()
+            if role_name:
+                role = session.execute(select(Role).where(Role.name == role_name)).scalar_one()
+                session.add(UserRole(user_id=user.id, role_id=role.id))
+            session.commit()
+        return user.id
+
+
+@pytest.fixture
 def locked_user(session_factory: sessionmaker[Session]) -> int:
     """建一个专门用来验证锁定的账号。"""
-    with session_factory() as session:
-        user = User(
-            username="lock_test",
-            password_hash=hash_password("lock-test-password"),
-            real_name="锁定测试",
-            is_active=True,
-        )
-        session.add(user)
-        session.commit()
-        return user.id
+    return _ensure_user(
+        session_factory,
+        username="lock_test",
+        password="lock-test-password",
+        real_name="锁定测试",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -155,32 +180,32 @@ def _login_headers(client: TestClient, username: str, password: str) -> dict[str
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
 
 
-@pytest.fixture(scope="session")
-def auth_headers(api_client: TestClient, test_admin: dict[str, str]) -> dict[str, str]:
+@pytest.fixture
+def auth_headers(
+    api_client: TestClient, session_factory: sessionmaker[Session], test_admin: dict[str, str]
+) -> dict[str, str]:
     """系统管理员登录后的请求头。"""
+    _ensure_user(
+        session_factory,
+        username=test_admin["username"],
+        password=test_admin["password"],
+        real_name=test_admin["name"],
+        role_name="系统管理员",
+    )
     return _login_headers(api_client, test_admin["username"], test_admin["password"])
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def readonly_headers(
     api_client: TestClient, session_factory: sessionmaker[Session]
 ) -> dict[str, str]:
     """只读用户登录后的请求头，用于验证权限确实在后端生效。"""
     password = "readonly-password"
-    with session_factory() as session:
-        user = session.execute(
-            select(User).where(User.username == "readonly_test")
-        ).scalar_one_or_none()
-        if user is None:
-            user = User(
-                username="readonly_test",
-                password_hash=hash_password(password),
-                real_name="只读测试",
-                is_active=True,
-            )
-            session.add(user)
-            session.flush()
-            role = session.execute(select(Role).where(Role.name == "只读用户")).scalar_one()
-            session.add(UserRole(user_id=user.id, role_id=role.id))
-            session.commit()
+    _ensure_user(
+        session_factory,
+        username="readonly_test",
+        password=password,
+        real_name="只读测试",
+        role_name="只读用户",
+    )
     return _login_headers(api_client, "readonly_test", password)

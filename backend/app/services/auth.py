@@ -1,12 +1,14 @@
 """认证业务：登录校验、锁定策略、令牌签发与撤销。"""
 
 from datetime import timedelta
+import json
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import BusinessError, ErrorCode
+from app.core.audit import write_audit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -53,13 +55,33 @@ def authenticate(
 
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user is None:
+        write_audit(
+            action="login",
+            username=username,
+            detail=json.dumps({"result": "failure", "reason": "账号不存在"}, ensure_ascii=False),
+            client_ip=client_ip,
+        )
         raise BusinessError(ErrorCode.NOT_AUTHENTICATED, "用户名或密码错误", 401)
 
     if not user.is_active:
+        write_audit(
+            action="login",
+            user_id=user.id,
+            username=user.username,
+            detail=json.dumps({"result": "failure", "reason": "账号已停用"}, ensure_ascii=False),
+            client_ip=client_ip,
+        )
         raise BusinessError(ErrorCode.FORBIDDEN, "账号已停用，请联系管理员", 403)
 
     if user.locked_until is not None and user.locked_until > now:
         minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
+        write_audit(
+            action="login",
+            user_id=user.id,
+            username=user.username,
+            detail=json.dumps({"result": "failure", "reason": "账号锁定中"}, ensure_ascii=False),
+            client_ip=client_ip,
+        )
         raise BusinessError(ErrorCode.FORBIDDEN, f"账号已锁定，请 {minutes} 分钟后再试", 403)
 
     if not verify_password(password, user.password_hash):
@@ -68,6 +90,13 @@ def authenticate(
             user.locked_until = now + timedelta(seconds=settings.lockout_duration_seconds)
             user.failed_attempts = 0
         db.commit()
+        write_audit(
+            action="login",
+            user_id=user.id,
+            username=user.username,
+            detail=json.dumps({"result": "failure", "reason": "口令错误"}, ensure_ascii=False),
+            client_ip=client_ip,
+        )
         raise BusinessError(ErrorCode.NOT_AUTHENTICATED, "用户名或密码错误", 401)
 
     user.failed_attempts = 0
@@ -75,6 +104,13 @@ def authenticate(
     user.last_login_at = now
     user.last_login_ip = client_ip
     db.commit()
+    write_audit(
+        action="login",
+        user_id=user.id,
+        username=user.username,
+        detail=json.dumps({"result": "success"}, ensure_ascii=False),
+        client_ip=client_ip,
+    )
     return user
 
 
@@ -166,3 +202,9 @@ def logout(db: Session, refresh_token: str, settings: Settings | None = None) ->
     if record is not None and record.revoked_at is None:
         record.revoked_at = local_now()
         db.commit()
+        user = db.get(User, record.user_id)
+        write_audit(
+            action="logout",
+            user_id=record.user_id,
+            username=user.username if user else None,
+        )

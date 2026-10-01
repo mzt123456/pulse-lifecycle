@@ -13,6 +13,7 @@
 # 开发库数据目录，只在本机存在
 dev/mysql-data/
 mysql-data/
+backend/data/
 
 # Python
 __pycache__/

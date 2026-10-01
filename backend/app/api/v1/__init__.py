@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    attachments,
     auth,
     consumables,
     dicts,
@@ -10,6 +11,7 @@ from app.api.v1 import (
     faults,
     health,
     maintenance,
+    system,
     well_operations,
 )
 
@@ -22,3 +24,5 @@ api_router.include_router(maintenance.router)
 api_router.include_router(faults.router)
 api_router.include_router(consumables.router)
 api_router.include_router(dicts.router)
+api_router.include_router(attachments.router)
+api_router.include_router(system.router)

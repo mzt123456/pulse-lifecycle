@@ -38,6 +38,16 @@ class Settings(BaseSettings):
 
     # NoDecode：pydantic-settings 默认把列表字段按 JSON 解析，这里改为自己按逗号切分
     cors_origins: Annotated[list[str], NoDecode] = []
+    allowed_upload_extensions: Annotated[list[str], NoDecode] = [
+        ".pdf",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".xlsx",
+        ".xls",
+        ".docx",
+        ".txt",
+    ]
 
     # 认证与令牌（编写报告 7.1、8.1）
     jwt_secret: str = Field(
@@ -60,7 +70,15 @@ class Settings(BaseSettings):
     # 工单号规则：前缀 + 年月日 + 三位序号（编写报告 14.1）
     maintenance_order_prefix: str = "WX"
 
-    @field_validator("cors_origins", mode="before")
+    # 附件：存服务器目录，不入库；单文件大小与扩展名白名单（编写报告 5.5、7.4）
+    attachment_dir: str = "data/attachments"
+    upload_max_size_mb: int = 50
+
+    @property
+    def attachment_path(self) -> Path:
+        return (BACKEND_DIR / self.attachment_dir).resolve()
+
+    @field_validator("cors_origins", "allowed_upload_extensions", mode="before")
     @classmethod
     def split_origins(cls, value: object) -> object:
         """允许写成逗号分隔的字符串，留空表示不启用跨域白名单。"""

@@ -67,3 +67,14 @@ def dispose_engine() -> None:
         _engine.dispose()
     _engine = None
     _session_factory = None
+
+
+def configure_engine(engine: Engine, factory: sessionmaker[Session]) -> None:
+    """替换全局引擎与会话工厂。
+
+    审计日志、后台任务这类不经过请求依赖的代码需要自己开会话，这里给它们
+    一个统一的入口；测试把它指向独立测试库，避免写到开发库。
+    """
+    global _engine, _session_factory
+    _engine = engine
+    _session_factory = factory
