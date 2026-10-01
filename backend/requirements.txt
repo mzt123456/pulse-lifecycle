@@ -11,3 +11,7 @@ python-dotenv==1.2.3
 PyJWT==2.15.1
 # Windows 上没有系统时区库，zoneinfo 需要 tzdata 才能解析 Asia/Shanghai
 tzdata
+# Excel 导入导出（耗材批量导入、阶段 5 的报表导出）
+openpyxl==3.1.5
+# 文件上传（FastAPI 的 multipart 表单解析）
+python-multipart==0.0.20

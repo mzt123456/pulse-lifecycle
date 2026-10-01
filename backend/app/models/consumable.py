@@ -3,10 +3,11 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.mixins import ID_TYPE, AuditMixin, PkMixin, TimestampMixin
+from app.models.user import User
 
 
 class Consumable(Base, PkMixin, AuditMixin):
@@ -39,3 +40,26 @@ class ConsumableUsage(Base, PkMixin, TimestampMixin):
     used_by: Mapped[int | None] = mapped_column(ID_TYPE, comment="领用人")
     used_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, comment="领用时间")
     remark: Mapped[str | None] = mapped_column(String(255), comment="备注")
+
+    consumable: Mapped[Consumable] = relationship(lazy="joined")
+    # used_by 故意不加外键，显式声明连接条件并设为只读
+    used_by_user: Mapped[User | None] = relationship(
+        primaryjoin=lambda: ConsumableUsage.used_by == User.id,
+        foreign_keys=lambda: [ConsumableUsage.used_by],
+        viewonly=True,
+        lazy="joined",
+    )
+
+    @property
+    def part_no(self) -> str | None:
+        return self.consumable.part_no if self.consumable is not None else None
+
+    @property
+    def description(self) -> str | None:
+        return self.consumable.description if self.consumable is not None else None
+
+    @property
+    def used_by_name(self) -> str | None:
+        if self.used_by_user is None:
+            return None
+        return self.used_by_user.real_name or self.used_by_user.username

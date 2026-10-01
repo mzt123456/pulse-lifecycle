@@ -3,9 +3,10 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.equipment import Equipment
 from app.models.mixins import ID_TYPE, AuditMixin, PkMixin
 
 
@@ -23,3 +24,9 @@ class FaultRecord(Base, PkMixin, AuditMixin):
     cause: Mapped[str | None] = mapped_column(String(500), comment="原因分析")
     solution: Mapped[str | None] = mapped_column(String(500), comment="解决方案")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="待处理", comment="处理状态")
+
+    equipment: Mapped[Equipment] = relationship(lazy="joined")
+
+    @property
+    def equipment_no(self) -> str | None:
+        return self.equipment.equipment_no if self.equipment is not None else None
