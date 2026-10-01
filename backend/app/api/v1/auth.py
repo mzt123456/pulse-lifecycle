@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.ratelimit import client_ip, enforce_login_rate_limit
 from app.core.response import ApiResponse, ok
 from app.db.session import get_db
 from app.models.user import User
@@ -13,18 +14,17 @@ from app.services import auth as auth_service
 router = APIRouter(prefix="/auth", tags=["认证"])
 
 
-def _client_ip(request: Request) -> str | None:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
-
-
-@router.post("/login", response_model=ApiResponse, summary="登录")
+@router.post(
+    "/login",
+    response_model=ApiResponse,
+    summary="登录",
+    dependencies=[Depends(enforce_login_rate_limit)],
+)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
-    user = auth_service.authenticate(db, payload.username, payload.password, _client_ip(request))
+    ip = client_ip(request)
+    user = auth_service.authenticate(db, payload.username, payload.password, ip)
     data = auth_service.issue_tokens(
-        db, user, _client_ip(request), request.headers.get("user-agent")
+        db, user, ip, request.headers.get("user-agent")
     )
     return ok(TokenResponse(**data).model_dump())
 
@@ -32,7 +32,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 @router.post("/refresh", response_model=ApiResponse, summary="刷新访问令牌")
 def refresh_token(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     data = auth_service.refresh(
-        db, payload.refresh_token, _client_ip(request), request.headers.get("user-agent")
+        db, payload.refresh_token, client_ip(request), request.headers.get("user-agent")
     )
     return ok(TokenResponse(**data).model_dump())
 

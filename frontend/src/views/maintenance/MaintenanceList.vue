@@ -13,6 +13,7 @@ import {
   type MaintenancePayload,
 } from '@/api/maintenance'
 import { usePagedList } from '@/composables/usePagedList'
+import AttachmentPanel from '@/components/AttachmentPanel.vue'
 import { useUserStore } from '@/store/user'
 import type { Equipment, MaintenanceOrder, MaintenanceStep } from '@/types'
 
@@ -342,6 +343,8 @@ async function saveDetail(): Promise<void> {
           <el-table-column prop="done_by_name" label="完成人" width="110" />
           <el-table-column prop="done_at" label="完成时间" width="170" />
         </el-table>
+
+        <AttachmentPanel object-type="maintenance_order" :object-id="detail.id" />
       </template>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>

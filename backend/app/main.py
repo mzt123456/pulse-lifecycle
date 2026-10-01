@@ -24,6 +24,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(settings)
     if settings.app_env != "dev" and settings.jwt_secret == DEFAULT_JWT_SECRET:
         logger.warning("当前环境为 %s 却仍在使用默认 JWT 密钥，请通过 PULSE_JWT_SECRET 提供", settings.app_env)
+    if any(origin.strip() == "*" for origin in settings.cors_origins):
+        # 跨域不允许放通配符：宁可启动失败，也不要静默放开全部来源
+        raise ValueError("CORS_ORIGINS 不允许使用通配符 *，请填写具体的前端域名")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

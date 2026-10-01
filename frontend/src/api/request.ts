@@ -70,7 +70,11 @@ function ensureRefreshed(): Promise<boolean> {
 http.interceptors.response.use(
   (response) => {
     const body = response.data as ApiEnvelope
-    if (body && typeof body.code === 'number' && body.code !== 0) {
+    // 只对统一信封做拆包；文件流等非信封响应原样返回
+    if (!body || typeof body !== 'object' || typeof body.code !== 'number') {
+      return body as unknown as AxiosResponse
+    }
+    if (body.code !== 0) {
       ElMessage.error(body.message || '请求失败')
       return Promise.reject(new ApiError(body.code, body.message))
     }

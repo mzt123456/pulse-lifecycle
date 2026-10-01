@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     max_login_attempts: int = 5
     lockout_duration_seconds: int = 300
+    login_rate_limit_per_minute: int = 10
     session_timeout_seconds: int = 28800
 
     # 初始化数据用的管理员账号；口令留空时种子脚本会拒绝创建

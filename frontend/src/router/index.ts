@@ -59,6 +59,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/consumables/ConsumableList.vue'),
         meta: { title: '耗材管理' },
       },
+      {
+        path: 'audit-logs',
+        name: 'audit-logs',
+        component: () => import('@/views/system/AuditLogList.vue'),
+        meta: { title: '审计日志' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } },

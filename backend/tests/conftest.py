@@ -5,6 +5,12 @@ TEST_DATABASE_URL 覆盖；数据库不可达时相关用例整体跳过，不�
 """
 
 import os
+
+# 测试会频繁登录，先把限流阈值调高，避免用例互相干扰；
+# 必须写在导入 app 之前，否则配置会被缓存成默认的每分钟 10 次。
+# 限流本身由 tests/test_ratelimit.py 单独验证。
+os.environ.setdefault("LOGIN_RATE_LIMIT_PER_MINUTE", "1000")
+
 from collections.abc import Iterator
 from pathlib import Path
 

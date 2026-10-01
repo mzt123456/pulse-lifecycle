@@ -20,6 +20,7 @@ const MENUS = [
   { path: '/maintenance', title: '维保管理', permission: 'maintenance.view' },
   { path: '/faults', title: '故障记录', permission: 'fault.view' },
   { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
+  { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
 ]
 
 const visibleMenus = computed(() =>
@@ -55,7 +56,7 @@ async function handleLogout(): Promise<void> {
           {{ item.title }}
         </el-menu-item>
       </el-menu>
-      <div class="admin-aside-note">报表、系统管理将在后续阶段接入</div>
+      <div class="admin-aside-note">报表与数据导出将在阶段 5 接入</div>
     </el-aside>
 
     <el-container>

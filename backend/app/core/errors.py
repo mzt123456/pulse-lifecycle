@@ -21,6 +21,8 @@ class ErrorCode:
     NOT_FOUND = 40400
     CONFLICT = 40900
     BUSINESS_RULE = 42200
+    # 报告 5.2 的八条之外新增：限流拒绝，便于前端区分"请求过频"与普通业务校验失败
+    TOO_MANY_REQUESTS = 42900
     INTERNAL = 50000
 
 

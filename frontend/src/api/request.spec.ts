@@ -84,6 +84,15 @@ describe('请求封装', () => {
     expect(data.username).toBe('admin')
   })
 
+  it('非信封响应（如文件流）原样返回', async () => {
+    const blob = new Blob(['file-bytes'], { type: 'text/plain' })
+    routes = [{ method: 'get', url: '/attachments/1', reply: { status: 200, data: blob } }]
+
+    const data = await request<Blob>({ url: '/attachments/1', method: 'get' })
+
+    expect(data).toBe(blob)
+  })
+
   it('业务错误码转为 ApiError 并提示', async () => {
     routes = [
       {
