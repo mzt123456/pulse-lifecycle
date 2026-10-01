@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import DecimalStr
+from app.schemas.common import DateTimeStr, DecimalStr
 
 
 class MaintenanceStepOut(BaseModel):
@@ -16,7 +16,7 @@ class MaintenanceStepOut(BaseModel):
     is_done: bool
     done_by: int | None
     done_by_name: str | None
-    done_at: datetime | None
+    done_at: DateTimeStr | None
     remark: str | None
 
 
@@ -60,8 +60,8 @@ class MaintenanceOrderOut(BaseModel):
     suggestion: str | None
     status: str
     report_path: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: DateTimeStr
+    updated_at: DateTimeStr
 
 
 class MaintenanceOrderDetail(MaintenanceOrderOut):

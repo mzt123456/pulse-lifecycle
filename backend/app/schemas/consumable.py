@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.common import DateTimeStr
+
 
 class ConsumableCreate(BaseModel):
     part_no: str = Field(min_length=1, max_length=64, description="部件号")
@@ -31,8 +33,8 @@ class ConsumableOut(BaseModel):
     safety_stock: int
     unit: str | None
     remark: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: DateTimeStr
+    updated_at: DateTimeStr
 
 
 class ConsumableUsageCreate(BaseModel):
@@ -53,7 +55,7 @@ class ConsumableUsageOut(BaseModel):
     quantity: int
     used_by: int | None
     used_by_name: str | None
-    used_at: datetime
+    used_at: DateTimeStr
     remark: str | None
 
 

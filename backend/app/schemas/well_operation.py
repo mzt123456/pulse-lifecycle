@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import DecimalStr
+from app.schemas.common import DateTimeStr, DecimalStr
 
 
 class WellOperationFields(BaseModel):
@@ -41,5 +41,7 @@ class WellOperationOut(WellOperationFields):
     id: int
     equipment_id: int
     equipment_no: str | None = Field(default=None, description="脉冲编号，便于列表展示")
-    created_at: datetime
-    updated_at: datetime
+    start_date: DateTimeStr | None = Field(default=None, description="入井时间")
+    end_date: DateTimeStr | None = Field(default=None, description="出井时间")
+    created_at: DateTimeStr
+    updated_at: DateTimeStr

@@ -1,5 +1,7 @@
 """设备台账接口用例：编号唯一、乐观锁、状态流水与删除保护。"""
 
+import re
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -189,3 +191,15 @@ def test_delete_is_blocked_when_maintenance_order_exists(
 
     assert blocked.status_code == 409
     assert "维保工单" in blocked.json()["message"]
+
+
+def test_datetime_fields_use_documented_format(
+    api_client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """编写报告 5.1：时间字段统一返回 YYYY-MM-DD HH:MM:SS，不能带 ISO 的 T。"""
+    created = api_client.post(
+        BASE, headers=auth_headers, json={"equipment_no": "PLT-FMT", "status": "待命"}
+    ).json()["data"]
+
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", created["created_at"])
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", created["updated_at"])

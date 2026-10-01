@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.common import DateTimeStr
+
 
 class FaultRecordCreate(BaseModel):
     equipment_id: int = Field(description="关联设备 ID，必填")
@@ -32,12 +34,12 @@ class FaultRecordOut(BaseModel):
     id: int
     equipment_id: int
     equipment_no: str | None
-    occurred_at: datetime | None
+    occurred_at: DateTimeStr | None
     position: str | None
     fault_type: str | None
     description: str | None
     cause: str | None
     solution: str | None
     status: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: DateTimeStr
+    updated_at: DateTimeStr

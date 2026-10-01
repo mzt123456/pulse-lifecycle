@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.common import DecimalStr
+from app.schemas.common import DateTimeStr, DecimalStr
 
 
 class EquipmentCreate(BaseModel):
@@ -54,8 +54,8 @@ class EquipmentOut(BaseModel):
     company: str | None
     contact_name: str | None
     contact_phone: str | None
-    last_maintenance_at: datetime | None
+    last_maintenance_at: DateTimeStr | None
     remark: str | None
     version: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: DateTimeStr
+    updated_at: DateTimeStr

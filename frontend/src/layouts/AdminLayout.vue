@@ -17,6 +17,9 @@ const MENUS = [
   { path: '/dashboard', title: '数据总览', permission: '' },
   { path: '/equipment', title: '设备管理', permission: 'equipment.view' },
   { path: '/operations', title: '使用管理', permission: 'well_operation.view' },
+  { path: '/maintenance', title: '维保管理', permission: 'maintenance.view' },
+  { path: '/faults', title: '故障记录', permission: 'fault.view' },
+  { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
 ]
 
 const visibleMenus = computed(() =>
@@ -52,7 +55,7 @@ async function handleLogout(): Promise<void> {
           {{ item.title }}
         </el-menu-item>
       </el-menu>
-      <div class="admin-aside-note">维保、故障与耗材页面开发中</div>
+      <div class="admin-aside-note">报表、系统管理将在后续阶段接入</div>
     </el-aside>
 
     <el-container>

@@ -75,3 +75,79 @@ export interface WellOperation {
 }
 
 export type DictMap = Record<string, string[]>
+
+export interface MaintenanceStep {
+  id: number
+  seq: number
+  name: string
+  is_done: boolean
+  done_by: number | null
+  done_by_name: string | null
+  done_at: string | null
+  remark: string | null
+}
+
+export interface MaintenanceOrder {
+  id: number
+  order_no: string
+  equipment_id: number
+  equipment_no: string | null
+  level: string
+  start_date: string | null
+  end_date: string | null
+  result: string | null
+  oil_level: string | null
+  suggestion: string | null
+  status: string
+  report_path: string | null
+  created_at: string
+  updated_at: string
+  steps?: MaintenanceStep[]
+}
+
+export interface FaultRecord {
+  id: number
+  equipment_id: number
+  equipment_no: string | null
+  occurred_at: string | null
+  position: string | null
+  fault_type: string | null
+  description: string | null
+  cause: string | null
+  solution: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Consumable {
+  id: number
+  part_no: string
+  description: string
+  quantity: number
+  safety_stock: number
+  unit: string | null
+  remark: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConsumableUsage {
+  id: number
+  consumable_id: number
+  part_no: string | null
+  description: string | null
+  order_id: number | null
+  quantity: number
+  used_by: number | null
+  used_by_name: string | null
+  used_at: string
+  remark: string | null
+}
+
+export interface ImportSummary {
+  created: number
+  updated: number
+  failed: number
+  errors: string[]
+}

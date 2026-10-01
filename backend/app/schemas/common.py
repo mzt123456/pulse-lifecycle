@@ -1,5 +1,6 @@
 """通用请求与响应模型。"""
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Generic, TypeVar
 
@@ -12,6 +13,12 @@ T = TypeVar("T")
 DecimalStr = Annotated[
     Decimal,
     PlainSerializer(lambda value: format(value, "f"), return_type=str, when_used="json"),
+]
+
+# 时间字段统一以 YYYY-MM-DD HH:MM:SS 返回（编写报告 5.1）
+DateTimeStr = Annotated[
+    datetime,
+    PlainSerializer(lambda value: value.strftime("%Y-%m-%d %H:%M:%S"), return_type=str, when_used="json"),
 ]
 
 
