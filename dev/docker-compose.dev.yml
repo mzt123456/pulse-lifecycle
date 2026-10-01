@@ -28,6 +28,8 @@ services:
       - --default-time-zone=+08:00
     volumes:
       - ./mysql-data:/var/lib/mysql
+      # 首次初始化数据目录时执行，用于给应用账号开放测试库（见 initdb/01-grants.sql）
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-upulse_dev", "-pdev_pwd"]
       interval: 10s
