@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     initial_admin_password: str = ""
     initial_admin_name: str = "系统管理员"
 
+    # 工单号规则：前缀 + 年月日 + 三位序号（编写报告 14.1）
+    maintenance_order_prefix: str = "WX"
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_origins(cls, value: object) -> object:

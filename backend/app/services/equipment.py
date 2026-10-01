@@ -1,11 +1,12 @@
 """设备台账业务规则：编号唯一、乐观锁、状态流水与删除保护。"""
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessError, ErrorCode
 from app.core.timeutil import local_now
 from app.models.equipment import Equipment, EquipmentStatusLog
+from app.models.maintenance import MaintenanceOrder
 from app.models.operation import WellOperation
 from app.models.user import User
 from app.schemas.equipment import EquipmentCreate, EquipmentUpdate
@@ -103,18 +104,30 @@ def update_equipment(
 def delete_equipment(db: Session, equipment_id: int, user: User) -> None:
     equipment = get_equipment(db, equipment_id)
 
-    usage_count = (
-        db.scalar(
-            select(func.count())
-            .select_from(WellOperation)
-            .where(WellOperation.equipment_id == equipment.id)
+    # 有业务数据时不允许删除；状态流水属于设备自身历史，随设备一起删
+    blockers: list[str] = []
+    for label, model in (
+        ("条使用记录", WellOperation),
+        ("张维保工单", MaintenanceOrder),
+    ):
+        count = (
+            db.scalar(
+                select(func.count()).select_from(model).where(model.equipment_id == equipment.id)
+            )
+            or 0
         )
-        or 0
-    )
-    if usage_count:
+        if count:
+            blockers.append(f"{count} {label}")
+    if blockers:
         raise BusinessError(
             ErrorCode.CONFLICT,
-            f"该设备已有 {usage_count} 条使用记录，请先处理这些记录再删除",
+            "该设备已有 " + "、".join(blockers) + "，请先处理后再删除",
             409,
         )
+
+    db.execute(
+        delete(EquipmentStatusLog).where(EquipmentStatusLog.equipment_id == equipment.id)
+    )
     db.delete(equipment)
+    # 立即 flush：让约束错误在这里暴露，而不是等到请求结束提交时才失败
+    db.flush()

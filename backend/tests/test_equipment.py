@@ -141,3 +141,51 @@ def test_readonly_user_cannot_create_equipment(
 
     allowed = api_client.get(BASE, headers=readonly_headers)
     assert allowed.status_code == 200
+
+
+def test_delete_removes_equipment_with_its_status_log(
+    api_client: TestClient,
+    auth_headers: dict[str, str],
+    session_factory: sessionmaker[Session],
+) -> None:
+    """只有状态流水的设备可以删除，流水随设备一起清理，不能留下孤儿数据。"""
+    created = api_client.post(
+        BASE, headers=auth_headers, json={"equipment_no": "PLT-DEL-OK", "status": "待命"}
+    ).json()["data"]
+    api_client.put(
+        f"{BASE}/{created['id']}",
+        headers=auth_headers,
+        json={"version": created["version"], "status": "维保"},
+    )
+
+    deleted = api_client.delete(f"{BASE}/{created['id']}", headers=auth_headers)
+
+    assert deleted.status_code == 200, deleted.text
+    assert api_client.get(f"{BASE}/{created['id']}", headers=auth_headers).status_code == 404
+    with session_factory() as session:
+        remaining = list(
+            session.execute(
+                select(EquipmentStatusLog).where(
+                    EquipmentStatusLog.equipment_id == created["id"]
+                )
+            ).scalars()
+        )
+    assert remaining == []
+
+
+def test_delete_is_blocked_when_maintenance_order_exists(
+    api_client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    equipment = api_client.post(
+        BASE, headers=auth_headers, json={"equipment_no": "PLT-DEL-MO", "status": "维保"}
+    ).json()["data"]
+    api_client.post(
+        "/api/v1/maintenance-orders",
+        headers=auth_headers,
+        json={"equipment_id": equipment["id"], "level": "一级维保"},
+    )
+
+    blocked = api_client.delete(f"{BASE}/{equipment['id']}", headers=auth_headers)
+
+    assert blocked.status_code == 409
+    assert "维保工单" in blocked.json()["message"]

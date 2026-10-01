@@ -4,10 +4,12 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.equipment import Equipment
 from app.models.mixins import ID_TYPE, AuditMixin, PkMixin
+from app.models.user import User
 
 
 class MaintenanceOrder(Base, PkMixin, AuditMixin):
@@ -32,6 +34,17 @@ class MaintenanceOrder(Base, PkMixin, AuditMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="进行中", comment="状态")
     report_path: Mapped[str | None] = mapped_column(String(255), comment="维保报告文件路径")
 
+    equipment: Mapped[Equipment] = relationship(lazy="joined")
+    steps: Mapped[list["MaintenanceStep"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="MaintenanceStep.seq",
+    )
+
+    @property
+    def equipment_no(self) -> str | None:
+        return self.equipment.equipment_no if self.equipment is not None else None
+
 
 class MaintenanceStep(Base, PkMixin):
     """维保步骤清单，按等级自动生成，逐项记录完成情况。"""
@@ -48,3 +61,19 @@ class MaintenanceStep(Base, PkMixin):
     done_by: Mapped[int | None] = mapped_column(ID_TYPE, comment="完成人")
     done_at: Mapped[datetime | None] = mapped_column(DateTime, comment="完成时间")
     remark: Mapped[str | None] = mapped_column(String(255), comment="备注")
+
+    order: Mapped[MaintenanceOrder] = relationship(back_populates="steps")
+    # done_by 故意不加外键（删除用户不应牵连历史记录），因此显式声明连接条件并设为只读
+    done_by_user: Mapped[User | None] = relationship(
+        primaryjoin=lambda: MaintenanceStep.done_by == User.id,
+        foreign_keys=lambda: [MaintenanceStep.done_by],
+        viewonly=True,
+        lazy="joined",
+    )
+
+    @property
+    def done_by_name(self) -> str | None:
+        """完成人姓名，列表与详情直接展示。"""
+        if self.done_by_user is None:
+            return None
+        return self.done_by_user.real_name or self.done_by_user.username
