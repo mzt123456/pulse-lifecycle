@@ -12,6 +12,17 @@ const store = useUserStore()
 const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => route.meta.title ?? '')
 
+/** 菜单按权限点显隐；没有权限点的菜单所有人可见。 */
+const MENUS = [
+  { path: '/dashboard', title: '数据总览', permission: '' },
+  { path: '/equipment', title: '设备管理', permission: 'equipment.view' },
+  { path: '/operations', title: '使用管理', permission: 'well_operation.view' },
+]
+
+const visibleMenus = computed(() =>
+  MENUS.filter((item) => !item.permission || store.has(item.permission)),
+)
+
 onMounted(async () => {
   // 每次进入后台都刷新一次当前用户：权限调整可在下次请求即生效
   try {
@@ -37,9 +48,11 @@ async function handleLogout(): Promise<void> {
     <el-aside width="200px" class="admin-aside">
       <div class="admin-brand">剪切阀脉冲器</div>
       <el-menu :default-active="activeMenu" router class="admin-menu">
-        <el-menu-item index="/dashboard">数据总览</el-menu-item>
+        <el-menu-item v-for="item in visibleMenus" :key="item.path" :index="item.path">
+          {{ item.title }}
+        </el-menu-item>
       </el-menu>
-      <div class="admin-aside-note">业务模块将在后续阶段接入</div>
+      <div class="admin-aside-note">维保、故障与耗材页面开发中</div>
     </el-aside>
 
     <el-container>

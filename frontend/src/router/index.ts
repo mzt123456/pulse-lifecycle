@@ -29,6 +29,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DashboardView.vue'),
         meta: { title: '数据总览' },
       },
+      {
+        path: 'equipment',
+        name: 'equipment',
+        component: () => import('@/views/equipment/EquipmentList.vue'),
+        meta: { title: '设备管理' },
+      },
+      {
+        path: 'operations',
+        name: 'operations',
+        component: () => import('@/views/operations/WellOperationList.vue'),
+        meta: { title: '使用管理' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } },
