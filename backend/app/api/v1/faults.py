@@ -1,6 +1,6 @@
 """故障记录接口。"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -10,6 +10,7 @@ from app.models.fault import FaultRecord
 from app.models.user import User
 from app.schemas.fault import FaultRecordCreate, FaultRecordOut, FaultRecordUpdate
 from app.services import fault as service
+from app.utils.excel import build_xlsx, xlsx_response
 
 router = APIRouter(prefix="/fault-records", tags=["故障记录"])
 
@@ -46,6 +47,20 @@ def create_fault(
     user: User = Depends(require_permission("fault.create")),
 ) -> dict:
     return ok(_serialize(service.create_fault(db, payload, user)))
+
+
+@router.get("/export", summary="按筛选条件导出故障记录")
+def export_faults(
+    equipment_id: int | None = Query(default=None),
+    fault_type: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("report.export")),
+) -> Response:
+    buffer = build_xlsx(
+        service.EXPORT_HEADERS, service.iter_export_rows(db, equipment_id, fault_type, status)
+    )
+    return xlsx_response(buffer, "故障记录.xlsx")
 
 
 @router.get("/{fault_id}", response_model=ApiResponse, summary="故障记录详情")

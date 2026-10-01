@@ -1,6 +1,6 @@
 """维保工单与步骤接口。"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -17,6 +17,7 @@ from app.schemas.maintenance import (
     StepCompleteRequest,
 )
 from app.services import maintenance as service
+from app.utils.excel import build_xlsx, xlsx_response
 
 router = APIRouter(prefix="/maintenance-orders", tags=["维保管理"])
 
@@ -61,6 +62,20 @@ def create_order(
     user: User = Depends(require_permission("maintenance.create")),
 ) -> dict:
     return ok(_serialize_detail(service.create_order(db, payload, user)))
+
+
+@router.get("/export", summary="按筛选条件导出维保工单")
+def export_orders(
+    equipment_id: int | None = Query(default=None),
+    level: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("maintenance.export")),
+) -> Response:
+    buffer = build_xlsx(
+        service.EXPORT_HEADERS, service.iter_export_rows(db, equipment_id, level, status)
+    )
+    return xlsx_response(buffer, "维保工单.xlsx")
 
 
 @router.get("/{order_id}", response_model=ApiResponse, summary="维保工单详情（含步骤清单）")

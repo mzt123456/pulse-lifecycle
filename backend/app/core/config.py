@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     attachment_dir: str = "data/attachments"
     upload_max_size_mb: int = 50
 
+    # 维保提醒阈值（编写报告 8.1）
+    maint_interval_hours: int = 500
+    maint_interval_days: int = 90
+
     @property
     def attachment_path(self) -> Path:
         return (BACKEND_DIR / self.attachment_dir).resolve()

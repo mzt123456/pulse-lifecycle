@@ -20,6 +20,7 @@ const MENUS = [
   { path: '/maintenance', title: '维保管理', permission: 'maintenance.view' },
   { path: '/faults', title: '故障记录', permission: 'fault.view' },
   { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
+  { path: '/reports', title: '报表中心', permission: 'report.view' },
   { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
 ]
 

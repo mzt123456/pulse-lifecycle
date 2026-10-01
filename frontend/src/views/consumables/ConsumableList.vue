@@ -10,6 +10,7 @@ import {
   updateConsumable,
   type ConsumablePayload,
 } from '@/api/consumables'
+import { downloadExcel } from '@/api/export'
 import { usePagedList } from '@/composables/usePagedList'
 import { useUserStore } from '@/store/user'
 import type { Consumable, ImportSummary } from '@/types'
@@ -127,6 +128,15 @@ async function handleImport(file: File): Promise<boolean> {
   }
   return false // 阻止组件自身的上传行为，已用自定义请求提交
 }
+
+async function exportUsages(): Promise<void> {
+  try {
+    await downloadExcel('/consumables/usages/export', {}, '耗材领用明细.xlsx')
+    ElMessage.success('导出已开始，请查看浏览器下载')
+  } catch (error) {
+    console.warn('导出失败', error)
+  }
+}
 </script>
 
 <template>
@@ -144,6 +154,7 @@ async function handleImport(file: File): Promise<boolean> {
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.keyword = ''; filters.low_stock_only = false; search() }">重置</el-button>
         <el-button v-if="store.has('consumable.create')" type="success" @click="openCreate">新增耗材</el-button>
+        <el-button v-if="store.has('report.export')" @click="exportUsages">导出领用明细</el-button>
         <el-upload
           v-if="store.has('consumable.import')"
           class="import-upload"

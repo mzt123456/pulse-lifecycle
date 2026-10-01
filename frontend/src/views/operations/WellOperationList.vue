@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
 
 import { getDictItems } from '@/api/dict'
+import { downloadExcel } from '@/api/export'
 import { listEquipment } from '@/api/equipment'
 import {
   createOperation,
@@ -13,6 +14,7 @@ import {
 } from '@/api/operations'
 import { usePagedList } from '@/composables/usePagedList'
 import { useUserStore } from '@/store/user'
+import { compactParams } from '@/utils/params'
 import type { Equipment, WellOperation } from '@/types'
 
 const store = useUserStore()
@@ -140,6 +142,19 @@ async function remove(row: WellOperation): Promise<void> {
     console.warn('删除使用记录失败', error)
   }
 }
+
+async function exportExcel(): Promise<void> {
+  try {
+    await downloadExcel(
+      '/well-operations/export',
+      compactParams({ equipment_id: filters.equipment_id, well_no: filters.well_no }),
+      '使用记录.xlsx',
+    )
+    ElMessage.success('导出已开始，请查看浏览器下载')
+  } catch (error) {
+    console.warn('导出失败', error)
+  }
+}
 </script>
 
 <template>
@@ -170,6 +185,7 @@ async function remove(row: WellOperation): Promise<void> {
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.well_no = ''; search() }">重置</el-button>
         <el-button v-if="store.has('well_operation.create')" type="success" @click="openCreate">新增记录</el-button>
+        <el-button v-if="store.has('well_operation.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 

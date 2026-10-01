@@ -1,6 +1,6 @@
 """耗材目录、批量导入与领用接口。"""
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -16,6 +16,7 @@ from app.schemas.consumable import (
     ConsumableUsageOut,
 )
 from app.services import consumable as service
+from app.utils.excel import build_xlsx, xlsx_response
 
 router = APIRouter(prefix="/consumables", tags=["耗材管理"])
 
@@ -94,6 +95,18 @@ def issue_consumable(
     user: User = Depends(require_permission("consumable.issue")),
 ) -> dict:
     return ok(_serialize_usage(service.issue_consumable(db, payload, user)))
+
+
+@router.get("/usages/export", summary="按筛选条件导出耗材领用明细")
+def export_usages(
+    consumable_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("report.export")),
+) -> Response:
+    buffer = build_xlsx(
+        service.USAGE_EXPORT_HEADERS, service.iter_usage_export_rows(db, consumable_id)
+    )
+    return xlsx_response(buffer, "耗材领用明细.xlsx")
 
 
 @router.get("/{consumable_id}", response_model=ApiResponse, summary="耗材详情")

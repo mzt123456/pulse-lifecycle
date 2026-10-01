@@ -1,6 +1,6 @@
 """使用记录接口。"""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -14,6 +14,7 @@ from app.schemas.well_operation import (
     WellOperationUpdate,
 )
 from app.services import well_operation as service
+from app.utils.excel import build_xlsx, xlsx_response
 
 router = APIRouter(prefix="/well-operations", tags=["使用管理"])
 
@@ -49,6 +50,19 @@ def create_operation(
     user: User = Depends(require_permission("well_operation.create")),
 ) -> dict:
     return ok(_serialize(service.create_operation(db, payload, user)))
+
+
+@router.get("/export", summary="按筛选条件导出使用记录")
+def export_operations(
+    equipment_id: int | None = Query(default=None),
+    well_no: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_permission("well_operation.export")),
+) -> Response:
+    buffer = build_xlsx(
+        service.EXPORT_HEADERS, service.iter_export_rows(db, equipment_id, well_no)
+    )
+    return xlsx_response(buffer, "使用记录.xlsx")
 
 
 @router.get("/{operation_id}", response_model=ApiResponse, summary="使用记录详情")

@@ -11,6 +11,7 @@ from app.api.v1 import (
     faults,
     health,
     maintenance,
+    reports,
     system,
     well_operations,
 )
@@ -26,3 +27,4 @@ api_router.include_router(consumables.router)
 api_router.include_router(dicts.router)
 api_router.include_router(attachments.router)
 api_router.include_router(system.router)
+api_router.include_router(reports.router)

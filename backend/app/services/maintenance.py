@@ -1,5 +1,7 @@
 """维保工单业务规则：步骤清单生成、工单号生成与完成状态维护。"""
 
+from collections.abc import Iterator
+
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -196,3 +198,46 @@ def complete_step(
     # done_by_user 是只读关系，改了 done_by 之后需要让它重新加载，否则返回的姓名是旧值
     db.expire(step, ["done_by_user"])
     return step
+
+
+EXPORT_HEADERS = [
+    "工单号",
+    "设备编号",
+    "维保等级",
+    "开始日期",
+    "结束日期",
+    "状态",
+    "维保结果",
+    "油位(mm)",
+    "维保建议",
+]
+
+
+def iter_export_rows(
+    db: Session,
+    equipment_id: int | None = None,
+    level: str | None = None,
+    status: str | None = None,
+) -> Iterator[list[object]]:
+    stmt = select(MaintenanceOrder)
+    if equipment_id is not None:
+        stmt = stmt.where(MaintenanceOrder.equipment_id == equipment_id)
+    if level:
+        stmt = stmt.where(MaintenanceOrder.level == level)
+    if status:
+        stmt = stmt.where(MaintenanceOrder.status == status)
+
+    for order in db.execute(
+        stmt.order_by(MaintenanceOrder.id.desc())
+    ).unique().scalars():
+        yield [
+            order.order_no,
+            order.equipment_no,
+            order.level,
+            order.start_date,
+            order.end_date,
+            order.status,
+            order.result,
+            order.oil_level,
+            order.suggestion,
+        ]

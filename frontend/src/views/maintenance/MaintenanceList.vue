@@ -3,6 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { getDictItems } from '@/api/dict'
+import { downloadExcel } from '@/api/export'
 import { listEquipment } from '@/api/equipment'
 import {
   completeStep,
@@ -15,6 +16,7 @@ import {
 import { usePagedList } from '@/composables/usePagedList'
 import AttachmentPanel from '@/components/AttachmentPanel.vue'
 import { useUserStore } from '@/store/user'
+import { compactParams } from '@/utils/params'
 import type { Equipment, MaintenanceOrder, MaintenanceStep } from '@/types'
 
 const store = useUserStore()
@@ -172,6 +174,23 @@ async function saveDetail(): Promise<void> {
     submitting.value = false
   }
 }
+
+async function exportExcel(): Promise<void> {
+  try {
+    await downloadExcel(
+      '/maintenance-orders/export',
+      compactParams({
+        equipment_id: filters.equipment_id,
+        level: filters.level,
+        status: filters.status,
+      }),
+      '维保工单.xlsx',
+    )
+    ElMessage.success('导出已开始，请查看浏览器下载')
+  } catch (error) {
+    console.warn('导出失败', error)
+  }
+}
 </script>
 
 <template>
@@ -198,6 +217,7 @@ async function saveDetail(): Promise<void> {
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.level = ''; filters.status = ''; search() }">重置</el-button>
         <el-button v-if="store.has('maintenance.create')" type="success" @click="openCreate">创建工单</el-button>
+        <el-button v-if="store.has('maintenance.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 

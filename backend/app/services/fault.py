@@ -1,5 +1,7 @@
 """故障记录业务规则。"""
 
+from collections.abc import Iterator
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -77,3 +79,44 @@ def update_fault(
     record.updated_by = user.id
     db.flush()
     return record
+
+
+EXPORT_HEADERS = [
+    "设备编号",
+    "故障发生时间",
+    "故障位置",
+    "故障类型",
+    "现象描述",
+    "原因分析",
+    "解决方案",
+    "处理状态",
+]
+
+
+def iter_export_rows(
+    db: Session,
+    equipment_id: int | None = None,
+    fault_type: str | None = None,
+    status: str | None = None,
+) -> Iterator[list[object]]:
+    stmt = select(FaultRecord)
+    if equipment_id is not None:
+        stmt = stmt.where(FaultRecord.equipment_id == equipment_id)
+    if fault_type:
+        stmt = stmt.where(FaultRecord.fault_type == fault_type)
+    if status:
+        stmt = stmt.where(FaultRecord.status == status)
+
+    for record in db.execute(
+        stmt.order_by(FaultRecord.occurred_at.desc(), FaultRecord.id.desc())
+    ).unique().scalars():
+        yield [
+            record.equipment_no,
+            record.occurred_at,
+            record.position,
+            record.fault_type,
+            record.description,
+            record.cause,
+            record.solution,
+            record.status,
+        ]

@@ -1,5 +1,6 @@
 """使用记录业务规则：自动计算使用时长与进尺，并在同一事务内维护设备累计值。"""
 
+from collections.abc import Iterator
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
@@ -144,3 +145,60 @@ def delete_operation(db: Session, operation_id: int, user: User) -> None:
     if equipment is not None:
         _apply_totals(equipment, -(operation.run_hours or ZERO), -1)
     db.delete(operation)
+
+
+# 导出列与顺序固定，筛选条件与列表查询保持一致（编写报告 5.1、11.2）
+EXPORT_HEADERS = [
+    "设备编号",
+    "井号",
+    "井深",
+    "井眼尺寸",
+    "泥浆类型",
+    "泥浆密度",
+    "排量",
+    "入井时间",
+    "出井时间",
+    "使用时长",
+    "入井井深",
+    "出井井深",
+    "进尺",
+    "井下温度",
+    "仪器类型",
+    "仪器配置",
+    "作业人员",
+    "备注",
+]
+
+
+def iter_export_rows(
+    db: Session, equipment_id: int | None = None, well_no: str | None = None
+) -> Iterator[list[object]]:
+    stmt = select(WellOperation)
+    if equipment_id is not None:
+        stmt = stmt.where(WellOperation.equipment_id == equipment_id)
+    if well_no:
+        stmt = stmt.where(WellOperation.well_no.like(f"%{well_no.strip()}%"))
+
+    for operation in db.execute(
+        stmt.order_by(WellOperation.start_date.desc(), WellOperation.id.desc())
+    ).unique().scalars():
+        yield [
+            operation.equipment_no,
+            operation.well_no,
+            operation.well_depth,
+            operation.bit_size,
+            operation.mud_type,
+            operation.mud_density,
+            operation.flow_rate,
+            operation.start_date,
+            operation.end_date,
+            operation.run_hours,
+            operation.run_in_depth,
+            operation.run_out_depth,
+            operation.footage,
+            operation.temperature,
+            operation.instrument_type,
+            operation.instrument_config,
+            operation.operator_name,
+            operation.remark,
+        ]

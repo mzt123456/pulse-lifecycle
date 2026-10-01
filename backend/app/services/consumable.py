@@ -4,6 +4,7 @@
 （编写报告 4.5）。
 """
 
+from collections.abc import Iterator
 from io import BytesIO
 
 from openpyxl import load_workbook
@@ -213,3 +214,33 @@ def import_consumables(db: Session, content: bytes, user: User) -> ImportResult:
 
     db.flush()
     return result
+
+
+USAGE_EXPORT_HEADERS = [
+    "部件号",
+    "中文描述",
+    "领用数量",
+    "领用人",
+    "领用时间",
+    "备注",
+]
+
+
+def iter_usage_export_rows(
+    db: Session, consumable_id: int | None = None
+) -> Iterator[list[object]]:
+    stmt = select(ConsumableUsage)
+    if consumable_id is not None:
+        stmt = stmt.where(ConsumableUsage.consumable_id == consumable_id)
+
+    for usage in db.execute(
+        stmt.order_by(ConsumableUsage.used_at.desc(), ConsumableUsage.id.desc())
+    ).unique().scalars():
+        yield [
+            usage.part_no,
+            usage.description,
+            usage.quantity,
+            usage.used_by_name,
+            usage.used_at,
+            usage.remark,
+        ]

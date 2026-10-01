@@ -3,10 +3,12 @@ import { ElMessage } from 'element-plus'
 import { onMounted, reactive, ref } from 'vue'
 
 import { getDictItems } from '@/api/dict'
+import { downloadExcel } from '@/api/export'
 import { listEquipment } from '@/api/equipment'
 import { createFault, listFaults, updateFault, type FaultPayload } from '@/api/faults'
 import { usePagedList } from '@/composables/usePagedList'
 import { useUserStore } from '@/store/user'
+import { compactParams } from '@/utils/params'
 import type { Equipment, FaultRecord } from '@/types'
 
 const store = useUserStore()
@@ -100,6 +102,23 @@ async function submit(): Promise<void> {
     submitting.value = false
   }
 }
+
+async function exportExcel(): Promise<void> {
+  try {
+    await downloadExcel(
+      '/fault-records/export',
+      compactParams({
+        equipment_id: filters.equipment_id,
+        fault_type: filters.fault_type,
+        status: filters.status,
+      }),
+      '故障记录.xlsx',
+    )
+    ElMessage.success('导出已开始，请查看浏览器下载')
+  } catch (error) {
+    console.warn('导出失败', error)
+  }
+}
 </script>
 
 <template>
@@ -126,6 +145,7 @@ async function submit(): Promise<void> {
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="() => { filters.equipment_id = undefined; filters.fault_type = ''; filters.status = ''; search() }">重置</el-button>
         <el-button v-if="store.has('fault.create')" type="success" @click="openCreate">新增故障</el-button>
+        <el-button v-if="store.has('report.export')" @click="exportExcel">导出 Excel</el-button>
       </el-form-item>
     </el-form>
 

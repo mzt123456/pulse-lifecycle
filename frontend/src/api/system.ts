@@ -1,4 +1,5 @@
 import http, { request } from '@/api/request'
+import { triggerDownload } from '@/utils/download'
 import type { PageResult } from '@/types'
 
 export interface AuditLog {
@@ -67,12 +68,5 @@ export function uploadAttachment(
 /** 下载走带令牌的请求再触发浏览器保存，避免直接开链接丢掉鉴权头。 */
 export async function downloadAttachment(id: number, fileName: string): Promise<void> {
   const blob = (await http.get(`/attachments/${id}`, { responseType: 'blob' })) as unknown as Blob
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  triggerDownload(blob, fileName)
 }
