@@ -15,10 +15,14 @@ from app.db.session import dispose_engine
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_JWT_SECRET = "dev-secret-change-me-please-use-32-bytes-or-more"
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
+    if settings.app_env != "dev" and settings.jwt_secret == DEFAULT_JWT_SECRET:
+        logger.warning("当前环境为 %s 却仍在使用默认 JWT 密钥，请通过 PULSE_JWT_SECRET 提供", settings.app_env)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

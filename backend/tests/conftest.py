@@ -1,10 +1,149 @@
-import pytest
-from fastapi.testclient import TestClient
+"""共享测试夹具：独立测试库、迁移、会话与 API 客户端。
 
+测试库由开发库名追加 _test 得到（pulse_lifecycle_dev_test），可用环境变量
+TEST_DATABASE_URL 覆盖；数据库不可达时相关用例整体跳过，不影响其余用例。
+"""
+
+import os
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
+
+from app.core.config import get_settings
+from app.core.security import hash_password
+from app.db.seed import seed
+from app.db.session import get_db
 from app.main import create_app
+from app.models.user import User
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+TEST_ADMIN = {"username": "admin", "password": "Test-passw0rd-1234", "name": "测试管理员"}
+
+
+def _server_url(url: URL) -> URL:
+    """去掉库名的连接串，用于建库与删库（URL.set(database=None) 在 2.1 中不生效）。"""
+    return URL.create(
+        drivername=url.drivername,
+        username=url.username,
+        password=url.password,
+        host=url.host,
+        port=url.port,
+        query=dict(url.query),
+    )
 
 
 @pytest.fixture(scope="session")
-def client() -> TestClient:
+def test_admin() -> dict[str, str]:
+    return dict(TEST_ADMIN)
+
+
+@pytest.fixture(scope="session")
+def test_database_url() -> Iterator[str]:
+    settings = get_settings()
+    base_url = make_url(os.getenv("TEST_DATABASE_URL") or settings.database_url)
+    url = base_url.set(database=f"{base_url.database}_test")
+
+    engine = create_engine(_server_url(url), poolclass=NullPool)
+    try:
+        with engine.connect() as connection:
+            connection.execute(
+                text(
+                    f"CREATE DATABASE IF NOT EXISTS `{url.database}` "
+                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+                )
+            )
+            connection.commit()
+    except Exception as exc:  # 数据库不可用时跳过，不阻塞其余用例
+        pytest.skip(f"测试库不可用，跳过数据库相关用例：{exc}")
+
+    # 注意：str(URL) 会把密码渲染成 ***，必须显式要求明文，否则连接会认证失败
+    yield url.render_as_string(hide_password=False)
+
+    with engine.connect() as connection:
+        connection.execute(text(f"DROP DATABASE IF EXISTS `{url.database}`"))
+        connection.commit()
+    engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def alembic_config(test_database_url: str) -> Config:
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", test_database_url)
+    return config
+
+
+@pytest.fixture(scope="session")
+def migrated(alembic_config: Config, test_database_url: str) -> Iterator[str]:
+    command.downgrade(alembic_config, "base")
+    command.upgrade(alembic_config, "head")
+    yield test_database_url
+
+
+@pytest.fixture(scope="session")
+def session_factory(migrated: str) -> Iterator[sessionmaker[Session]]:
+    engine = create_engine(migrated, poolclass=NullPool)
+    factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    yield factory
+    engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def seeded(
+    migrated: str, session_factory: sessionmaker[Session], test_admin: dict[str, str]
+) -> None:
+    with session_factory() as session:
+        seed(session, test_admin["username"], test_admin["password"], test_admin["name"])
+
+
+@pytest.fixture(scope="session")
+def locked_user(session_factory: sessionmaker[Session]) -> int:
+    """建一个专门用来验证锁定的账号。"""
+    with session_factory() as session:
+        user = User(
+            username="lock_test",
+            password_hash=hash_password("lock-test-password"),
+            real_name="锁定测试",
+            is_active=True,
+        )
+        session.add(user)
+        session.commit()
+        return user.id
+
+
+@pytest.fixture(scope="session")
+def client() -> Iterator[TestClient]:
+    """不接数据库的客户端，用于配置与健康检查等用例。"""
     with TestClient(create_app()) as test_client:
         yield test_client
+
+
+@pytest.fixture(scope="session")
+def api_client(seeded: None, session_factory: sessionmaker[Session]) -> Iterator[TestClient]:
+    """把数据库依赖指向测试库的客户端，用于接口用例。"""
+    app = create_app()
+
+    def override_get_db() -> Iterator[Session]:
+        session = session_factory()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
