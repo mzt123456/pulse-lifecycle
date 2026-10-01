@@ -1,0 +1,61 @@
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+
+import { getAccessToken } from '@/utils/token'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** 无需登录即可访问 */
+    public?: boolean
+    /** 面包屑与浏览器标题使用的名称 */
+    title?: string
+  }
+}
+
+const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { public: true, title: '登录' },
+  },
+  {
+    path: '/',
+    component: () => import('@/layouts/AdminLayout.vue'),
+    children: [
+      { path: '', redirect: { name: 'dashboard' } },
+      {
+        path: 'dashboard',
+        name: 'dashboard',
+        component: () => import('@/views/DashboardView.vue'),
+        meta: { title: '数据总览' },
+      },
+    ],
+  },
+  { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+})
+
+router.beforeEach((to) => {
+  const loggedIn = Boolean(getAccessToken())
+
+  if (!to.meta.public && !loggedIn) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  if (to.name === 'login' && loggedIn) {
+    return { name: 'dashboard' }
+  }
+  return true
+})
+
+router.afterEach((to) => {
+  const title = to.meta.title
+  document.title = title
+    ? `${title} - 剪切阀脉冲器全生命周期管理系统`
+    : '剪切阀脉冲器全生命周期管理系统'
+})
+
+export default router
