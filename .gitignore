@@ -1,0 +1,43 @@
+# Office 与编辑器临时文件
+~$*
+*.tmp
+
+# 密钥与本地配置：仓库只放样例
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# 开发库数据目录，只在本机存在
+dev/mysql-data/
+mysql-data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node 与前端构建产物
+node_modules/
+dist/
+.vite/
+*.local
+
+# 日志与运行期产物
+*.log
+logs/
+backup/
+*.tar
+*.tar.gz
+
+# 编辑器与系统
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,35 @@
+# 开发环境专用编排：只跑 MySQL，后端与前端仍在本机运行。
+#
+# 启动：docker compose -f dev/docker-compose.dev.yml up -d
+# 查看：docker compose -f dev/docker-compose.dev.yml logs -f
+# 停止：docker compose -f dev/docker-compose.dev.yml down
+#
+# 连接信息：127.0.0.1:3307  数据库 pulse_lifecycle_dev  用户 pulse_dev
+# 本机已安装的 MySQL 8.4 服务占用 3306，此处映射到 3307，两者互不干扰。
+# 生产环境在容器内部使用 3306，与开发环境靠库名区分：pulse_lifecycle_dev / pulse_lifecycle。
+# data 目录请勿提交到版本库（见同目录 .gitignore）。
+
+services:
+  mysql-dev:
+    image: mysql:8.0
+    container_name: pulse-mysql-dev
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: dev_root_pwd
+      MYSQL_DATABASE: pulse_lifecycle_dev
+      MYSQL_USER: pulse_dev
+      MYSQL_PASSWORD: dev_pwd
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-upulse_dev", "-pdev_pwd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
