@@ -41,3 +41,6 @@ backup/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 文档生成用的中转目录
+.work/
