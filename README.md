@@ -39,6 +39,27 @@ docker compose -f dev/docker-compose.dev.yml down       # 停库
 连接信息：`127.0.0.1:3307`，库 `pulse_lifecycle_dev`，用户 `pulse_dev`。
 本机若另装了 MySQL 8.4，它占用 3306，两者互不干扰。
 
+## 后端
+
+后端在 `backend/` 目录，FastAPI + SQLAlchemy 2.x + Alembic，要求 Python 3.10 以上。
+
+首次准备（在 `backend/` 目录下执行）：
+
+```
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+copy .env.example .env
+```
+
+启动开发服务与运行测试：
+
+```
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+.venv\Scripts\python.exe -m pytest
+```
+
+接口文档在 `http://127.0.0.1:8000/docs`，健康检查在 `http://127.0.0.1:8000/api/v1/health`。
+
 ## 配置与密钥
 
 仓库只提交 `.env.example`，真实的 `.env` 不进入版本库，JWT 密钥在部署时随机生成并单独保管。

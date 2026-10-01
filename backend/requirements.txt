@@ -1,0 +1,10 @@
+# 运行时依赖。PyMySQL 在 MySQL 8 默认的 caching_sha2_password 认证下需要 cryptography。
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.1
+alembic==1.20.0
+pymysql==1.2.3
+cryptography==50.0.2
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
