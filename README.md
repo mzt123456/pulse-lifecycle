@@ -67,6 +67,7 @@ copy .env.example .env
 | 接口 | 说明 | 权限 |
 | --- | --- | --- |
 | `POST /api/v1/ai/diagnosis` | 输入故障现象，返回可能原因、建议处置与引用案例 | `fault.view` |
+| `POST /api/v1/ai/ask` | 自然语言数据问答，模型自己决定调哪些工具 | 登录即可，数据按工具粒度鉴权 |
 | `GET /api/v1/ai/corpus/stats` | 语料规模与来源构成 | `system.settings` |
 
 链路是「结构化预过滤 → BM25 检索 → 大模型归纳 → 引用校验」，两条抗幻觉约束：
@@ -82,6 +83,35 @@ copy .env.example .env
 .venv\Scripts\python.exe eval\retrieval_eval.py          # 行业词典 + 同义词扩展
 .venv\Scripts\python.exe eval\retrieval_eval.py --plain  # 基线，用于对比
 ```
+
+### Agent 工具与技能
+
+`/ai/ask` 走手写的工具调用循环（最多 5 步）：模型决定调哪个工具、结果回灌、信息够了再作答。
+工具全部复用现有 service，**用户没有权限的工具根本不会出现在模型可见的清单里**，每次调用都写审计日志
+（`object_type=ai_tool`）。
+
+技能按需加载，避免把全部指令塞进提示词：
+
+```
+app/ai/skills/<技能名>/SKILL.md      # frontmatter 声明用途与触发词，正文是流程与约束
+app/ai/skills/<技能名>/references/   # 参考资料，被显式引用时才读入上下文
+```
+
+常驻提示词里只有一行一个的技能索引，命中触发词才展开正文；返回体里的 `context_chars` 可以看到省了多少。
+
+### MCP Server
+
+同一套工具定义还有第二个出口：MCP。外部客户端（Claude Code、Codex、Cursor 等）可以直接挂载。
+
+```
+cd backend
+.venv\Scripts\python.exe -m app.mcp.server                              # stdio
+set MCP_TRANSPORT=streamable-http && .venv\Scripts\python.exe -m app.mcp.server   # 内网 HTTP
+```
+
+身份用服务账号（环境变量 `MCP_USERNAME`，默认 `admin`），工具层照旧按该账号的权限点过滤——
+换传输方式不绕过权限。**只暴露查询类工具，写操作不开放**；另有两个只读资源
+`pulse://corpus/stats` 与 `pulse://audit/recent`。
 
 ## 配置与密钥
 
