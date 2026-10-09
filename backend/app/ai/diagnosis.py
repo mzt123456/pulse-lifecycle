@@ -126,6 +126,7 @@ def _base_result(
         "model": model,
         "elapsed_ms": elapsed_ms,
         "filter_relaxed": filter_relaxed,
+        "usage": None,
     }
 
 
@@ -267,4 +268,12 @@ def diagnose(
     result["confidence"] = confidence
     result["note"] = note
     result["citations"] = citations
+    usage = getattr(llm, "last_usage", None)
+    if usage is not None:
+        # 单次成本的可观测性：token 用量一起返回，方便算钱与优化提示词
+        result["usage"] = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }
     return result

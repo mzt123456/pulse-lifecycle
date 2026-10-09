@@ -43,6 +43,14 @@ class DiagnosisItem(BaseModel):
     case_ids: list[str]
 
 
+class TokenUsageOut(BaseModel):
+    """单次成本口径：输入 token、输出 token 与总量。"""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class DiagnosisOut(BaseModel):
     found: bool = Field(description="是否检索到相似案例")
     degraded: bool = Field(description="是否降级（未经过大模型归纳）")
@@ -56,6 +64,7 @@ class DiagnosisOut(BaseModel):
     model: str | None = None
     elapsed_ms: int
     filter_relaxed: bool = Field(description="是否因条件过窄而放宽了结构化过滤")
+    usage: TokenUsageOut | None = Field(default=None, description="本次调用的 token 用量")
 
 
 class CorpusSourceStat(BaseModel):

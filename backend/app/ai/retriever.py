@@ -42,6 +42,11 @@ DEFAULT_B = 0.75
 DF_FILTER_MIN_DOCS = 10
 DF_FILTER_RATIO = 0.5
 
+# 只命中一个词时的稀有度门槛：那个词必须在语料里足够少见（默认不超过 5% 的文档）。
+# 没有这条，一句"食堂午餐菜单有调整吗"会靠"调整"两个字命中"调整脉冲参数"，
+# 本该回答"未找到"的场景反而给出一个很像答案的东西。
+SINGLE_TERM_DF_RATIO = 0.05
+
 
 def tokenize(text: str | None) -> list[str]:
     """中文按搜索模式切分，英文与数字整体保留，过滤停用词与单字。"""
@@ -106,6 +111,25 @@ class BM25Index:
             return True
         return self._doc_freq.get(term, 0) <= max_doc_freq
 
+    @property
+    def _single_term_max_df(self) -> int:
+        """单个词命中也算相关时，这个词允许出现的最大文档数。"""
+        return max(1, round(SINGLE_TERM_DF_RATIO * len(self._documents)))
+
+    def _is_relevant(self, matched: Sequence[str]) -> bool:
+        """命中词数是相关性判据的一部分。
+
+        命中两个以上词基本可以认为是同一件事在说；只命中一个词时，这个词要么
+        本身稀有（词汇专指），要么这个命中就是巧合——实测里"调整""软件"这类
+        出现在多篇文档里的词，正是域外问题被误召回的唯一来源。
+        分数阈值在这里没用：误召回得分 3.39，真实命中里也有 3.07 的，分不开。
+        """
+        if len(matched) >= 2:
+            return True
+        if not matched:
+            return False
+        return self._doc_freq.get(matched[0], 0) <= self._single_term_max_df
+
     def _candidates(self, filters: Mapping[str, object] | None) -> Iterable[int]:
         if not filters:
             return range(len(self._documents))
@@ -155,7 +179,7 @@ class BM25Index:
                 matched.append(term)
                 score += idf[term] * (freq * (self._k1 + 1)) / (freq + normalization)
 
-            if score > 0:
+            if score > 0 and self._is_relevant(matched):
                 hits.append(
                     SearchHit(
                         document=self._documents[index],

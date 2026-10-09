@@ -88,3 +88,30 @@ def test_terms_present_in_most_documents_are_ignored_on_large_corpus() -> None:
     assert index.search("现象") == []
     assert index.search("压力异常 密封圈") == []
     assert [hit.document.doc_id for hit in index.search("脉冲波形畸变")] == ["target"]
+
+
+def test_single_common_term_hit_is_not_enough() -> None:
+    """只靠一个常见词命中的结果不算相关——这是域外问题误召回的来源。"""
+    index = BM25Index(
+        [
+            _doc("a", "【现象】调整脉冲参数"),
+            _doc("b", "【现象】根据井况调整参数"),
+            _doc("c", "【现象】调整脉冲频率"),
+            _doc("d", "【现象】阀芯动作卡滞"),
+        ]
+    )
+
+    assert index.search("调整") == []  # 出现在 3/4 篇文档里，太常见
+    assert [hit.document.doc_id for hit in index.search("阀芯")] == ["d"]  # 只出现 1 篇
+
+
+def test_two_matched_terms_are_enough_even_if_each_is_common() -> None:
+    index = BM25Index(
+        [
+            _doc("a", "【现象】调整脉冲参数 密封圈老化"),
+            _doc("b", "【现象】调整脉冲频率"),
+        ]
+    )
+
+    hits = index.search("调整 密封圈")
+    assert [hit.document.doc_id for hit in hits] == ["a"]

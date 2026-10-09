@@ -53,6 +53,32 @@ class ChatTurn:
     tool_calls: tuple[ToolCall, ...] = ()
 
 
+@dataclass(frozen=True)
+class TokenUsage:
+    """一次调用的 token 用量：单次成本 = 输入 × 输入单价 + 输出 × 输出单价。"""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def merge(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            total_tokens=self.total_tokens + other.total_tokens,
+        )
+
+    @classmethod
+    def from_payload(cls, usage: Any) -> "TokenUsage":
+        if not isinstance(usage, dict):
+            return cls()
+        return cls(
+            prompt_tokens=int(usage.get("prompt_tokens") or 0),
+            completion_tokens=int(usage.get("completion_tokens") or 0),
+            total_tokens=int(usage.get("total_tokens") or 0),
+        )
+
+
 class ToolCallingClient(Protocol):
     """Agent 循环依赖的接口：走各家兼容的 function calling。"""
 
@@ -150,6 +176,8 @@ class OpenAICompatibleClient:
         self.timeout = timeout
         self.max_retries = max(0, max_retries)
         self._client = client
+        # 最近一次调用的用量；评测脚本与成本观察直接读它
+        self.last_usage = TokenUsage()
 
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.base_url}/chat/completions"
@@ -183,9 +211,11 @@ class OpenAICompatibleClient:
                 raise LLMError(f"大模型调用失败：HTTP {response.status_code}")
 
             try:
-                return response.json()
+                body = response.json()
             except ValueError as exc:
                 raise LLMError("大模型返回的不是 JSON") from exc
+            self.last_usage = TokenUsage.from_payload(body.get("usage"))
+            return body
 
         raise LLMError(f"大模型调用失败：{last_error or '未知错误'}")
 
