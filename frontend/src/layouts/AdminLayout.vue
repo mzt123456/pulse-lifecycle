@@ -25,6 +25,8 @@ const MENUS = [
   { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
   { path: '/reports', title: '报表中心', permission: 'report.view' },
   { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
+  // 智能助手对登录用户可见：诊断能力需要 fault.view，页内会按权限隐藏该模式
+  { path: '/assistant', title: '智能助手', permission: '' },
 ]
 
 const visibleMenus = computed(() =>
