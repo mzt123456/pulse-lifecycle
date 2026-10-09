@@ -20,3 +20,5 @@ jieba==0.42.1
 numpy==2.5.3
 # 大模型调用（OpenAI 兼容协议，直接走 HTTP，不引入各家 SDK）
 httpx==0.28.1
+# MCP Server：把系统能力按 Model Context Protocol 暴露给外部客户端
+mcp==2.3.0

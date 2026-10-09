@@ -252,3 +252,26 @@ def test_corpus_stats_requires_settings_permission(
     api_client: TestClient, readonly_headers: dict[str, str]
 ) -> None:
     assert api_client.get(CORPUS_STATS, headers=readonly_headers).status_code == 403
+
+
+def test_free_text_model_is_not_used_as_instrument_filter(
+    api_client: TestClient, auth_headers: dict[str, str], llm_override
+) -> None:
+    """型号字段可能是自由文本，不能当作仪器类型去硬过滤，否则召回直接归零。"""
+    equipment = api_client.post(
+        "/api/v1/equipment",
+        headers=auth_headers,
+        json={"equipment_no": "PLT-AI-FILTER", "model": "演示样机", "status": "待命"},
+    ).json()["data"]
+
+    data = api_client.post(
+        DIAGNOSIS,
+        headers=auth_headers,
+        json={
+            "description": "下井后压力保持不住，密封面渗漏",
+            "equipment_id": equipment["id"],
+        },
+    ).json()["data"]
+
+    assert data["matches"], "型号不在仪器类型字典里时应退化为不过滤，而不是搜不到"
+    assert data["filter_relaxed"] is False

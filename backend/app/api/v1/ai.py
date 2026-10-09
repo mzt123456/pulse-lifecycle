@@ -7,18 +7,20 @@ POST 请求由审计中间件自动留痕，与其它写操作一致。
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.ai import corpus as corpus_module
+from app.ai import agent
 from app.ai import diagnosis
 from app.ai.llm import build_chat_client
 from app.core.config import get_settings
-from app.core.deps import require_permission
+from app.core.deps import get_current_user, require_permission
 from app.core.response import ApiResponse, ok
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.ai import CorpusStatsOut, DiagnosisOut, DiagnosisRequest
+from app.schemas.ai import AskOut, AskRequest, CorpusStatsOut, DiagnosisOut, DiagnosisRequest
+from app.services.auth import load_roles_and_permissions
 
 router = APIRouter(prefix="/ai", tags=["智能运维助手"])
 
@@ -69,3 +71,33 @@ def corpus_stats(
     settings = get_settings()
     stats = corpus_module.corpus_stats(db, include_synthetic=settings.ai_include_synthetic)
     return ok(CorpusStatsOut.model_validate(stats).model_dump(mode="json"))
+
+
+@router.post(
+    "/ask",
+    response_model=ApiResponse,
+    summary="设备数据问答（Agent 工具调用）",
+)
+def ask_question(
+    payload: AskRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    llm: Any = Depends(get_chat_client),
+) -> dict:
+    """登录即可提问，具体能看到哪些数据由工具层的权限点决定。
+
+    这里只做登录校验、不挂单一权限点：一个账号可能只能查设备、不能查耗材，
+    所以权限要在工具粒度上判断，并把无权限的工具整体隐藏掉。
+    """
+    _, permissions = load_roles_and_permissions(db, user)
+    result = agent.answer(
+        db,
+        question=payload.question,
+        user=user,
+        permissions=frozenset(permissions),
+        llm=llm,
+        client_ip=request.client.host if request.client else None,
+        max_steps=payload.max_steps,
+    )
+    return ok(AskOut.model_validate(result).model_dump(mode="json"))

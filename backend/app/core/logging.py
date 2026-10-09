@@ -1,7 +1,12 @@
-"""日志配置：统一格式输出到标准输出，级别由配置决定。"""
+"""日志配置：统一格式输出到标准输出，级别由配置决定。
+
+stdio 传输的进程（如 MCP Server）必须把日志写到标准错误：标准输出是协议通道，
+多一行日志就会破坏消息分帧。所以这里允许调用方指定输出流。
+"""
 
 import logging
 import sys
+from typing import TextIO
 
 from app.core.config import Settings
 
@@ -9,11 +14,11 @@ LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
-def configure_logging(settings: Settings) -> None:
+def configure_logging(settings: Settings, stream: TextIO | None = None) -> None:
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
     # Windows 下标准输出默认按本地代码页编码，中文日志会乱码；统一成 UTF-8。
-    stream = sys.stdout
+    stream = stream or sys.stdout
     reconfigure = getattr(stream, "reconfigure", None)
     if callable(reconfigure):
         try:

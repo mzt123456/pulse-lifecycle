@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import httpx
@@ -33,6 +34,71 @@ class ChatClient(Protocol):
 
     def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
         """要求模型返回 JSON 对象；不满足约定时抛 LLMError。"""
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """模型要求调用的一次工具。"""
+
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChatTurn:
+    """一轮模型输出：要么是最终回答，要么是要调用的工具（可能多个）。"""
+
+    content: str | None
+    tool_calls: tuple[ToolCall, ...] = ()
+
+
+class ToolCallingClient(Protocol):
+    """Agent 循环依赖的接口：走各家兼容的 function calling。"""
+
+    model: str
+
+    def complete_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> ChatTurn:
+        ...
+
+
+def _parse_arguments(raw: Any) -> dict[str, Any]:
+    """function calling 的 arguments 是 JSON 字符串，解析失败时按空参数处理。"""
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("工具参数不是合法 JSON，按空参数处理：%s", str(raw)[:120])
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def parse_turn(message: dict[str, Any]) -> ChatTurn:
+    """把模型返回的 message 解析成一轮输出。"""
+    calls: list[ToolCall] = []
+    for index, item in enumerate(message.get("tool_calls") or []):
+        function = item.get("function") or {}
+        name = function.get("name")
+        if not name:
+            continue
+        calls.append(
+            ToolCall(
+                id=str(item.get("id") or f"call_{index}"),
+                name=str(name),
+                arguments=_parse_arguments(function.get("arguments")),
+            )
+        )
+    content = message.get("content")
+    return ChatTurn(content=content.strip() if isinstance(content, str) and content.strip() else None,
+                    tool_calls=tuple(calls))
 
 
 def extract_json(content: str) -> dict[str, Any]:
@@ -149,6 +215,31 @@ class OpenAICompatibleClient:
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMError("大模型返回结构不符合预期") from exc
         return extract_json(content)
+
+    def complete_with_tools(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float = 0.2,
+        max_tokens: int = 1200,
+    ) -> ChatTurn:
+        """带工具的一轮对话：模型自己决定是继续调工具还是给出结论。"""
+        data = self._post(
+            {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "tools": tools,
+                "tool_choice": "auto",
+            }
+        )
+        try:
+            message = data["choices"][0]["message"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError("大模型返回结构不符合预期") from exc
+        return parse_turn(message)
 
 
 def build_chat_client(settings: Settings) -> OpenAICompatibleClient | None:

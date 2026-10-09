@@ -25,6 +25,7 @@ from app.ai.prompts import SYSTEM_PROMPT, build_cases_block, build_diagnosis_pro
 from app.ai.retriever import SearchHit, search_with_fallback
 from app.ai.index_store import get_corpus_index
 from app.services import equipment as equipment_service
+from app.services import dict as dict_service
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,11 @@ def diagnose(
         equipment = equipment_service.get_equipment(db, equipment_id)
         equipment_no = equipment.equipment_no
         if not instrument_type and equipment.model:
-            instrument_type = equipment.model
+            # 设备型号是自由文本（现场可能填成"演示脉冲器"这类描述），只有它确实
+            # 属于「仪器类型」字典取值时才拿来当过滤条件；否则严格过滤会把整个
+            # 语料挡在外面，返回一条都搜不到。
+            if equipment.model in dict_service.options(db, "仪器类型"):
+                instrument_type = equipment.model
 
     index = get_corpus_index(db, include_synthetic=include_synthetic)
     filters = {
