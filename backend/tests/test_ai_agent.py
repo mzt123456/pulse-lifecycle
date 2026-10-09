@@ -262,6 +262,126 @@ def test_agent_without_client_returns_reason(admin_ctx: tools.ToolContext) -> No
     assert "未配置大模型" in result["reason"]
 
 
+# ------------------------------------------------------------------ 多轮
+
+
+def test_history_is_prepended_in_order(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="按上一轮说的继续。")])
+
+    result = agent.answer(
+        admin_ctx.db,
+        question="那耗材还剩多少",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[
+            {"question": "设备整体情况怎么样", "answer": "共 4 台设备。"},
+            {"question": "耗材呢", "answer": "共 2 种。"},
+        ],
+    )
+
+    roles = [item["role"] for item in llm.calls[0]["messages"]]
+    contents = [item.get("content") for item in llm.calls[0]["messages"]]
+
+    assert roles == ["system", "user", "assistant", "user", "assistant", "user"]
+    assert contents[1] == "设备整体情况怎么样"
+    assert contents[2] == "共 4 台设备。"
+    assert contents[-1] == "那耗材还剩多少"
+    assert result["history_turns"] == 2
+
+
+def test_history_entry_without_answer_only_sends_question(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="好的。")])
+
+    agent.answer(
+        admin_ctx.db,
+        question="继续查耗材",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[{"question": "设备情况", "answer": None}],
+    )
+
+    roles = [item["role"] for item in llm.calls[0]["messages"]]
+    assert roles == ["system", "user", "user"]
+
+
+def test_history_is_capped(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="好。")])
+
+    result = agent.answer(
+        admin_ctx.db,
+        question="再查一次耗材",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[{"question": f"第{i}个问题", "answer": f"第{i}个回答"} for i in range(12)],
+    )
+
+    assert result["history_turns"] == agent.MAX_HISTORY_TURNS
+    # 只带最近几轮：最早的那几条不该出现
+    contents = " ".join(str(item.get("content")) for item in llm.calls[0]["messages"])
+    assert "第0个问题" not in contents
+    assert "第11个问题" in contents
+
+
+def test_follow_up_question_inherits_skill_from_history(admin_ctx: tools.ToolContext) -> None:
+    """追问句本身没有触发词，靠上两轮的用户提问把技能带过来。"""
+    llm = ScriptedLLM([ChatTurn(content="建议先检查密封面。")])
+    follow_up = "那还有别的可能吗"
+
+    with_history = agent.answer(
+        admin_ctx.db,
+        question=follow_up,
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[{"question": "下井后压力保持不住是什么原因", "answer": "可能是密封面拉伤。"}],
+    )
+    without_history = agent.answer(
+        admin_ctx.db,
+        question=follow_up,
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=ScriptedLLM([ChatTurn(content="请说明具体问题。")]),
+    )
+
+    assert with_history["skill"] == "fault_diagnosis"
+    assert without_history["skill"] is None
+
+
+def test_multi_turn_prompt_warns_history_may_be_stale(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="重新查一遍。")])
+
+    agent.answer(
+        admin_ctx.db,
+        question="耗材还剩多少",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[{"question": "耗材情况", "answer": "还有 2 个。"}],
+    )
+
+    system_prompt = llm.calls[0]["messages"][0]["content"]
+    assert "可能已经过时" in system_prompt
+    assert "重新调用工具" in system_prompt
+
+
+def test_context_counts_history_chars(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="好。")])
+
+    result = agent.answer(
+        admin_ctx.db,
+        question="耗材还剩多少",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+        history=[{"question": "一二三四五", "answer": "六七八九十"}],
+    )
+
+    assert result["context_chars"]["history"] == 10
+
+
 # ------------------------------------------------------------------ 接口
 
 
@@ -291,5 +411,46 @@ def test_ask_endpoint_rejects_short_question(
     api_client: TestClient, readonly_headers: dict[str, str], llm_override
 ) -> None:
     response = api_client.post(ASK, headers=readonly_headers, json={"question": "查"})
+    assert response.status_code == 400
+    assert response.json()["code"] == 40001
+
+
+def test_ask_endpoint_accepts_history(
+    api_client: TestClient, readonly_headers: dict[str, str], llm_override
+) -> None:
+    llm = llm_override(ScriptedLLM([ChatTurn(content="共 2 种耗材。")]))
+
+    response = api_client.post(
+        ASK,
+        headers=readonly_headers,
+        json={
+            "question": "那耗材还剩多少",
+            "history": [{"question": "设备情况怎么样", "answer": "共 4 台。"}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["history_turns"] == 1
+    assert data["context_chars"]["history"] > 0
+    assert [item["role"] for item in llm.calls[0]["messages"]][:3] == [
+        "system",
+        "user",
+        "assistant",
+    ]
+
+
+def test_ask_endpoint_rejects_overlong_history(
+    api_client: TestClient, readonly_headers: dict[str, str], llm_override
+) -> None:
+    response = api_client.post(
+        ASK,
+        headers=readonly_headers,
+        json={
+            "question": "耗材还剩多少",
+            "history": [{"question": f"问题{i}", "answer": "答案"} for i in range(9)],
+        },
+    )
+
     assert response.status_code == 400
     assert response.json()["code"] == 40001

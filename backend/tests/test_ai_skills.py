@@ -52,6 +52,19 @@ def test_select_skill_returns_none_for_unrelated_question() -> None:
     assert select_skill("食堂午餐菜单今天有什么", load_skills()) is None
 
 
+def test_longer_trigger_wins_over_single_character_trigger() -> None:
+    """一字触发词太松，评分要按触发词长度加权。
+
+    这段文本里故障技能命中"原因"、数据技能命中"井"，只数个数会平票。
+    """
+    skills = load_skills()
+    question = "下井后压力保持不住是什么原因 那还有别的可能吗"
+
+    skill = select_skill(question, skills)
+
+    assert skill is not None and skill.name == "fault_diagnosis"
+
+
 def test_render_context_includes_body_and_requested_reference() -> None:
     skill = next(item for item in load_skills() if item.name == "fault_diagnosis")
     references = skill.references()

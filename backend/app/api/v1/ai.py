@@ -99,5 +99,6 @@ def ask_question(
         llm=llm,
         client_ip=request.client.host if request.client else None,
         max_steps=payload.max_steps,
+        history=[item.model_dump() for item in payload.history],
     )
     return ok(AskOut.model_validate(result).model_dump(mode="json"))

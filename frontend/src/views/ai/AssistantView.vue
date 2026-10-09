@@ -6,6 +6,7 @@ import {
   askQuestion,
   diagnoseFault,
   getCorpusStats,
+  type AskTurn,
   type AskResult,
   type CorpusStats,
   type DiagnosisResult,
@@ -59,6 +60,19 @@ const EXAMPLES: Record<Mode, string[]> = {
 }
 
 const examples = computed(() => EXAMPLES[mode.value])
+
+/** 追问需要的历史：只取最近几轮"问答模式且有回答"的记录，按时间正序传给后端。 */
+function recentHistory(): AskTurn[] {
+  return entries.value
+    .filter((item) => item.mode === 'ask' && item.ask?.answer)
+    .slice(0, 6)
+    .reverse()
+    .map((item) => ({ question: item.question, answer: item.ask?.answer ?? null }))
+}
+
+function clearHistory(): void {
+  entries.value = []
+}
 
 onMounted(async () => {
   if (canDiagnose.value) {
@@ -130,7 +144,7 @@ async function submit(): Promise<void> {
         top_k: 5,
       })
     } else {
-      entry.ask = await askQuestion({ question: text })
+      entry.ask = await askQuestion({ question: text, history: recentHistory() })
     }
     question.value = ''
     entries.value.unshift(entry)
@@ -161,6 +175,7 @@ async function submit(): Promise<void> {
           含仿真案例（真实数据待迁移）
         </el-tag>
       </div>
+      <el-button v-if="entries.length" link size="small" @click="clearHistory">清空会话</el-button>
     </div>
 
     <div class="page-card">
@@ -340,8 +355,9 @@ async function submit(): Promise<void> {
           <el-tag v-if="entry.ask.skill" size="small">技能 {{ entry.ask.skill }}</el-tag>
           <span>耗时 {{ entry.ask.elapsed_ms }} ms</span>
           <span v-if="entry.ask.model">模型 {{ entry.ask.model }}</span>
+          <span v-if="entry.ask.history_turns">带入 {{ entry.ask.history_turns }} 轮历史</span>
           <el-tooltip
-            :content="`技能索引常驻 ${entry.ask.context_chars.skill_index} 字；若把全部技能正文与参考资料一次装入，需要 ${entry.ask.context_chars.all_skills_full} 字`"
+            :content="`技能索引常驻 ${entry.ask.context_chars.skill_index} 字；若把全部技能正文与参考资料一次装入，需要 ${entry.ask.context_chars.all_skills_full} 字；本次历史问答占用 ${entry.ask.context_chars.history} 字`"
             placement="top"
           >
             <span>上下文 {{ entry.ask.context_chars.system_prompt }} 字</span>

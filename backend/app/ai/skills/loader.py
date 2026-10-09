@@ -30,6 +30,8 @@ class Skill:
     name: str
     description: str
     triggers: tuple[str, ...]
+    # 触发词打平时的优先级：技能越专指，优先级越高，避免靠目录顺序决定结果
+    priority: int
     body: str
     path: Path
 
@@ -69,6 +71,10 @@ def load_skills() -> tuple[Skill, ...]:
         name = meta.get("name") or skill_file.parent.name
         if not body:
             continue
+        try:
+            priority = int(meta.get("priority", "0"))
+        except ValueError:
+            priority = 0
         skills.append(
             Skill(
                 name=name,
@@ -76,6 +82,7 @@ def load_skills() -> tuple[Skill, ...]:
                 triggers=tuple(
                     item.strip() for item in meta.get("triggers", "").split(",") if item.strip()
                 ),
+                priority=priority,
                 body=body,
                 path=skill_file,
             )
@@ -96,12 +103,23 @@ def skill_index(skills: tuple[Skill, ...] | None = None) -> str:
 
 
 def select_skill(question: str, skills: tuple[Skill, ...] | None = None) -> Skill | None:
-    """按触发词命中数量选择技能；一个都没命中就返回 None。"""
+    """按触发词选择技能；一个都没命中就返回 None。
+
+    评分是「命中触发词的总长度 → 命中个数 → 技能优先级」而不是只数个数：
+    一字触发词（例如"井"）太容易误命中，长触发词（"下井""原因"）更能说明话题。
+    实测踩过：追问"那还有别的可能吗"配上上文的"下井后压力保持不住是什么原因"，
+    故障技能命中"原因"、数据技能命中"下井"，长度也一样，最后还是平票；
+    所以再加一层显式优先级，让结果确定、可解释，而不是靠目录顺序。
+    """
     items = skills if skills is not None else load_skills()
     best: Skill | None = None
-    best_score = 0
+    best_score = (0, 0, 0)
     for skill in items:
-        score = sum(1 for trigger in skill.triggers if trigger and trigger in question)
+        matched = [trigger for trigger in skill.triggers if trigger and trigger in question]
+        if not matched:
+            # 优先级只在"确实命中"的技能之间起作用，不能凭优先级把不相关的技能选出来
+            continue
+        score = (sum(len(trigger) for trigger in matched), len(matched), skill.priority)
         if score > best_score:
             best, best_score = skill, score
     return best

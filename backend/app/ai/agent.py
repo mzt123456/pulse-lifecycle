@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 MAX_STEPS = 5
 MAX_TOOL_RESULT_CHARS = 4000
+# 多轮对话只带最近几轮，且只带问答正文：工具调用细节不回灌，
+# 一是省上下文，二是历史里的数据可能已经变了，不该被当成当前事实。
+MAX_HISTORY_TURNS = 6
+MAX_HISTORY_CHARS = 1500
 
 BASE_SYSTEM_PROMPT = """你是剪切阀脉冲器全生命周期管理系统的运维助手，服务对象是维保与管理人员。
 
@@ -52,6 +56,12 @@ BASE_SYSTEM_PROMPT = """你是剪切阀脉冲器全生命周期管理系统的�
 - 回答用中文，先给结论再给依据，数字带单位与范围。
 
 你没有把握时，宁可说明缺少什么信息，也不要给一个看起来完整的答案。"""
+
+MULTI_TURN_PROMPT = """
+
+这是多轮对话。历史消息只包含之前问答的正文，其中的数据可能已经过时：
+只要问题涉及具体数据（库存、工单、设备状态、故障记录），就必须重新调用工具取当前值，
+不要直接引用历史里的数字。"""
 
 
 def build_diagnose_tool(llm: Any) -> tools.ToolSpec:
@@ -154,6 +164,36 @@ def _assistant_message(content: str | None, calls: tuple[Any, ...]) -> dict[str,
     }
 
 
+def _normalize_history(history: Any) -> list[tuple[str, str | None]]:
+    """整理历史轮次：只保留最近若干轮，截断过长内容，丢掉空问题。"""
+    if not isinstance(history, (list, tuple)):
+        return []
+
+    turns: list[tuple[str, str | None]] = []
+    for item in history:
+        if isinstance(item, dict):
+            question = item.get("question")
+            answer = item.get("answer")
+        else:
+            continue
+        text = str(question or "").strip()
+        if not text:
+            continue
+        answer_text = str(answer).strip() if answer else None
+        turns.append((text[:MAX_HISTORY_CHARS], answer_text[:MAX_HISTORY_CHARS] if answer_text else None))
+    return turns[-MAX_HISTORY_TURNS:]
+
+
+def _skill_source(question: str, history: list[tuple[str, str | None]]) -> str:
+    """技能选择看最近两轮用户提问 + 本轮问题。
+
+    追问常常没有触发词（"那怎么处理""还有吗"），只看本轮会丢掉技能上下文；
+    但也不能把全部历史都算进去，否则话题切换后仍套着旧技能。
+    """
+    recent = [item[0] for item in history[-2:]]
+    return " ".join([*recent, question])
+
+
 def answer(
     db: Session,
     *,
@@ -163,16 +203,20 @@ def answer(
     llm: ToolCallingClient | None,
     client_ip: str | None = None,
     max_steps: int = MAX_STEPS,
+    history: Any = None,
 ) -> dict[str, Any]:
-    """用工具调用回答一个业务问题。"""
+    """用工具调用回答一个业务问题；history 为之前的问答轮次（可选）。"""
     started = time.perf_counter()
     model_name = getattr(llm, "model", None)
+    turns = _normalize_history(history)
 
     skills = load_skills()
     index_text = skill_index(skills)
-    skill = select_skill(question, skills)
+    skill = select_skill(_skill_source(question, turns), skills)
     skill_context = render_context(skill)
     system_prompt = BASE_SYSTEM_PROMPT
+    if turns:
+        system_prompt += MULTI_TURN_PROMPT
     if index_text:
         system_prompt += f"\n\n可用技能（命中才展开正文）：\n{index_text}"
     if skill_context:
@@ -187,10 +231,12 @@ def answer(
         "reason": None,
         "model": model_name,
         "elapsed_ms": 0,
+        "history_turns": len(turns),
         "context_chars": {
             "system_prompt": len(system_prompt),
             "skill_index": len(index_text),
             "all_skills_full": full_context_size(skills),
+            "history": sum(len(item[0]) + len(item[1] or "") for item in turns),
         },
     }
 
@@ -215,8 +261,13 @@ def answer(
     registry = {item.name: item for item in available}
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
     ]
+    for past_question, past_answer in turns:
+        messages.append({"role": "user", "content": past_question})
+        # 只有回答过（非降级）的轮次才作为 assistant 消息回灌
+        if past_answer:
+            messages.append({"role": "assistant", "content": past_answer})
+    messages.append({"role": "user", "content": question})
 
     for step in range(1, max_steps + 1):
         try:

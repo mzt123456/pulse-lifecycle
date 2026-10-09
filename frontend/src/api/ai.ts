@@ -66,7 +66,14 @@ export interface AskResult {
     system_prompt: number
     skill_index: number
     all_skills_full: number
+    history: number
   }
+  history_turns: number
+}
+
+export interface AskTurn {
+  question: string
+  answer: string | null
 }
 
 export interface CorpusStats {
@@ -95,7 +102,12 @@ export function diagnoseFault(payload: DiagnosisPayload): Promise<DiagnosisResul
   })
 }
 
-export function askQuestion(payload: { question: string; max_steps?: number }): Promise<AskResult> {
+export function askQuestion(payload: {
+  question: string
+  max_steps?: number
+  /** 最近几轮问答，用于追问；服务端只取最近 6 轮 */
+  history?: AskTurn[]
+}): Promise<AskResult> {
   return request<AskResult>({
     url: '/ai/ask',
     method: 'post',

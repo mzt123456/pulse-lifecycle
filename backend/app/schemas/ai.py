@@ -79,9 +79,21 @@ class CorpusStatsOut(BaseModel):
     by_source: list[CorpusSourceStat]
 
 
+class AskTurnIn(BaseModel):
+    """上一轮问答的正文。只带正文，不带工具调用细节。"""
+
+    question: str = Field(min_length=1, max_length=500)
+    answer: str | None = Field(default=None, max_length=4000)
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=4, max_length=300, description="用自然语言问一个业务问题")
     max_steps: int = Field(default=5, ge=1, le=8, description="工具调用步数上限")
+    history: list[AskTurnIn] = Field(
+        default_factory=list,
+        max_length=8,
+        description="最近几轮问答，用于追问；服务端只取最近 6 轮",
+    )
 
 
 class AskStepOut(BaseModel):
@@ -101,6 +113,7 @@ class AskContextOut(BaseModel):
     system_prompt: int
     skill_index: int
     all_skills_full: int
+    history: int = Field(default=0, description="历史问答占用的字符数")
 
 
 class AskOut(BaseModel):
@@ -113,3 +126,4 @@ class AskOut(BaseModel):
     model: str | None = None
     elapsed_ms: int
     context_chars: AskContextOut
+    history_turns: int = Field(default=0, description="本次实际带入的历史轮数")
