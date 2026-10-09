@@ -23,8 +23,10 @@ from sqlalchemy.orm import Session
 from app.ai.llm import ChatClient, LLMError
 from app.ai.prompts import SYSTEM_PROMPT, build_cases_block, build_diagnosis_prompt
 from app.ai.rerank import Reranker
-from app.ai.retriever import SearchHit, search_with_fallback
-from app.ai.index_store import get_corpus_index
+from app.ai.retriever import SearchHit, fuse_hits, search_with_fallback
+from app.ai.embedding import Embedder, EmbeddingError
+from app.ai.index_store import get_indexes
+from app.ai.vector_index import VectorIndex
 from app.services import equipment as equipment_service
 from app.services import dict as dict_service
 
@@ -33,6 +35,31 @@ logger = logging.getLogger(__name__)
 MAX_ITEMS = 5
 CONFIDENCE_LEVELS = ("高", "中", "低")
 DEGRADED_NOTE = "当前结果为相似案例检索，未经过大模型归纳；请人工判断后使用。"
+# 取候选时的放大倍数：融合与重排都需要比最终展示更多的候选
+CANDIDATE_MULTIPLIER = 2
+DEFAULT_VECTOR_WEIGHT = 0.5
+
+
+def _vector_search(
+    vector_index: VectorIndex,
+    embedder: Embedder,
+    description: str,
+    *,
+    top_k: int,
+    filters: dict[str, str] | None,
+) -> tuple[list[SearchHit], str | None]:
+    """查询向量化 + 向量检索；条件过窄时与 BM25 一致地放宽过滤。"""
+    try:
+        query_vector = embedder.embed([description])[0]
+    except EmbeddingError as exc:
+        # 查询向量化失败只影响这一路，BM25 照常工作
+        logger.warning("查询向量化失败，本次只用 BM25：%s", exc)
+        return [], f"查询向量化失败，本次仅用关键词检索：{exc}"
+
+    hits = vector_index.search(query_vector, top_k=top_k, filters=filters)
+    if not hits and filters:
+        hits = vector_index.search(query_vector, top_k=top_k)
+    return hits, None
 
 
 def _payload(hit: SearchHit, key: str) -> Any:
@@ -137,6 +164,7 @@ def _base_result(
         "elapsed_ms": elapsed_ms,
         "filter_relaxed": filter_relaxed,
         "usage": None,
+        "retrieval": {"mode": "bm25", "bm25_candidates": 0, "vector_candidates": 0, "note": None},
         "rerank": {
             "applied": False,
             "kept": len(matches),
@@ -162,6 +190,8 @@ def diagnose(
     include_synthetic: bool = True,
     llm: ChatClient | None = None,
     reranker: Reranker | None = None,
+    embedder: Embedder | None = None,
+    vector_weight: float = DEFAULT_VECTOR_WEIGHT,
 ) -> dict[str, Any]:
     """给一段故障现象，返回可能原因、建议处置与引用案例。"""
     started = time.perf_counter()
@@ -177,15 +207,43 @@ def diagnose(
             if equipment.model in dict_service.options(db, "仪器类型"):
                 instrument_type = equipment.model
 
-    index = get_corpus_index(db, include_synthetic=include_synthetic)
     filters = {
         key: value
         for key, value in (("fault_type", fault_type), ("instrument_type", instrument_type))
         if value
     }
-    outcome = search_with_fallback(index, description, top_k=top_k, filters=filters or None)
+    bundle = get_indexes(db, include_synthetic=include_synthetic, embedder=embedder)
+    # 取候选时多要一些：重排与融合都需要比最终展示更多的候选
+    candidate_k = min(max(top_k * CANDIDATE_MULTIPLIER, top_k), 20)
+    bm25_outcome = search_with_fallback(
+        bundle.bm25, description, top_k=candidate_k, filters=filters or None
+    )
 
-    hits = list(outcome.hits)
+    vector_hits: list[SearchHit] = []
+    vector_note = bundle.vector_note
+    if bundle.vector is not None and embedder is not None:
+        vector_hits, search_note = _vector_search(
+            bundle.vector, embedder, description, top_k=candidate_k, filters=filters or None
+        )
+        vector_note = vector_note or search_note
+
+    if vector_hits:
+        hits = fuse_hits(
+            bm25_outcome.hits, vector_hits, top_k=candidate_k, vector_weight=vector_weight
+        )
+        retrieval_mode = "hybrid"
+    else:
+        hits = list(bm25_outcome.hits)
+        retrieval_mode = "bm25"
+
+    retrieval_info = {
+        "mode": retrieval_mode,
+        "bm25_candidates": len(bm25_outcome.hits),
+        "vector_candidates": len(vector_hits),
+        "note": vector_note,
+    }
+    relaxed = bm25_outcome.relaxed
+
     rerank_scores: dict[str, int] = {}
     rerank_reasons: dict[str, str] = {}
     rerank_info = {
@@ -193,6 +251,7 @@ def diagnose(
         "kept": len(hits),
         "dropped": 0,
         "degraded": False,
+        "total_tokens": 0,
     }
     if hits and reranker is not None:
         reranked = reranker.rerank(description=description, hits=hits)
@@ -242,6 +301,7 @@ def diagnose(
             model=model_name,
         )
         result["rerank"] = rerank_info
+        result["retrieval"] = retrieval_info
         return result
 
     # 未配置模型或调用失败：降级为相似案例列表
@@ -252,7 +312,7 @@ def diagnose(
             reason="未配置大模型 API Key，已降级为相似案例检索",
             matches=matches,
             elapsed_ms=_elapsed_ms(started),
-            filter_relaxed=outcome.relaxed,
+            filter_relaxed=relaxed,
             model=None,
         )
         result["causes"] = _collect(hits, "cause")
@@ -260,6 +320,7 @@ def diagnose(
         result["confidence"] = "低"
         result["note"] = DEGRADED_NOTE
         result["rerank"] = rerank_info
+        result["retrieval"] = retrieval_info
         return result
 
     prompt = build_diagnosis_prompt(
@@ -280,7 +341,7 @@ def diagnose(
             reason=f"大模型不可用（{exc}），已降级为相似案例检索",
             matches=matches,
             elapsed_ms=_elapsed_ms(started),
-            filter_relaxed=outcome.relaxed,
+            filter_relaxed=relaxed,
             model=model_name,
         )
         result["causes"] = _collect(hits, "cause")
@@ -288,6 +349,7 @@ def diagnose(
         result["confidence"] = "低"
         result["note"] = DEGRADED_NOTE
         result["rerank"] = rerank_info
+        result["retrieval"] = retrieval_info
         return result
 
     causes = _normalize_items(raw.get("causes"), case_map)
@@ -314,7 +376,7 @@ def diagnose(
         reason=None if (causes or actions) else "模型未给出可用结论",
         matches=matches,
         elapsed_ms=_elapsed_ms(started),
-        filter_relaxed=outcome.relaxed,
+        filter_relaxed=relaxed,
         model=model_name,
     )
     result["causes"] = causes
@@ -323,6 +385,7 @@ def diagnose(
     result["note"] = note
     result["citations"] = citations
     result["rerank"] = rerank_info
+    result["retrieval"] = retrieval_info
     usage = getattr(llm, "last_usage", None)
     if usage is not None:
         # 单次成本的可观测性：token 用量一起返回，方便算钱与优化提示词

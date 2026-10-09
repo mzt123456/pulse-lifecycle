@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.ai import corpus as corpus_module
 from app.ai import agent
 from app.ai import diagnosis
+from app.ai.embedding import build_embedder
 from app.ai.llm import build_chat_client
 from app.ai.rerank import build_reranker
 from app.core.config import get_settings
@@ -35,6 +36,15 @@ def get_chat_client() -> Any:
     return build_chat_client(get_settings())
 
 
+def get_embedder() -> Any:
+    """向量化器依赖。
+
+    同样做成依赖而不是在路由里直接构造：测试替换成假向量化器，
+    切换 API / 本地模型时也只改配置。
+    """
+    return build_embedder(get_settings())
+
+
 @router.post(
     "/diagnosis",
     response_model=ApiResponse,
@@ -45,6 +55,7 @@ def diagnose_fault(
     db: Session = Depends(get_db),
     _: User = Depends(require_permission("fault.view")),
     llm: Any = Depends(get_chat_client),
+    embedder: Any = Depends(get_embedder),
 ) -> dict:
     settings = get_settings()
     reranker = build_reranker(
@@ -60,6 +71,7 @@ def diagnose_fault(
         include_synthetic=settings.ai_include_synthetic,
         llm=llm,
         reranker=reranker,
+        embedder=embedder,
     )
     return ok(DiagnosisOut.model_validate(result).model_dump(mode="json"))
 

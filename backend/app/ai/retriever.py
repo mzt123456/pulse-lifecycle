@@ -10,6 +10,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import jieba
 
@@ -199,6 +200,66 @@ class SearchOutcome:
 
     hits: tuple[SearchHit, ...]
     relaxed: bool
+
+
+@dataclass(frozen=True)
+class HybridOutcome:
+    """混合检索结果：融合后的命中、实际用到哪些通道、以及降级说明。"""
+
+    hits: tuple[SearchHit, ...]
+    mode: str
+    relaxed: bool = False
+    bm25_count: int = 0
+    vector_count: int = 0
+    note: str | None = None
+
+
+def fuse_hits(
+    bm25_hits: Sequence[SearchHit],
+    vector_hits: Sequence[SearchHit],
+    *,
+    top_k: int,
+    vector_weight: float = 0.5,
+) -> list[SearchHit]:
+    """把两路检索结果融合成一个排序。
+
+    为什么是"归一化加权"而不是 RRF：两路分数尺度不同（BM25 无上界、余弦在 0-1），
+    归一化后加权能直接给出 0-1 的匹配度，前端已经在展示这个分数，用户看得懂；
+    RRF 只用排名、不用分数，排序更稳但拿不出可展示的相关度。
+
+    BM25 用相对最高分归一化（同一查询内部可比），向量分数本身就是余弦相似度。
+    """
+    weight = min(max(vector_weight, 0.0), 1.0)
+    bm25_max = max((hit.score for hit in bm25_hits), default=0.0) or 1.0
+
+    merged: dict[str, dict[str, Any]] = {}
+    for hit in bm25_hits:
+        entry = merged.setdefault(
+            hit.document.doc_id,
+            {"document": hit.document, "terms": list(hit.matched_terms), "bm25": 0.0, "vector": 0.0},
+        )
+        entry["bm25"] = max(entry["bm25"], hit.score / bm25_max)
+        for term in hit.matched_terms:
+            if term not in entry["terms"]:
+                entry["terms"].append(term)
+    for hit in vector_hits:
+        entry = merged.setdefault(
+            hit.document.doc_id,
+            {"document": hit.document, "terms": [], "bm25": 0.0, "vector": 0.0},
+        )
+        entry["vector"] = max(entry["vector"], max(hit.score, 0.0))
+
+    hits = [
+        SearchHit(
+            document=entry["document"],
+            # 两路分数都归一化到 0-1 后加权，作为对外展示的匹配度
+            score=round((1 - weight) * entry["bm25"] + weight * entry["vector"], 4),
+            matched_terms=tuple(entry["terms"]),
+        )
+        for entry in merged.values()
+    ]
+    hits.sort(key=lambda hit: (-hit.score, hit.document.doc_id))
+    return hits[:top_k]
 
 
 def search_with_fallback(

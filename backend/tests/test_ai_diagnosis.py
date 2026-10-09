@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.ai import diagnosis
 from app.ai.document import CaseDocument
+from app.ai.index_store import IndexBundle
 from app.ai.llm import LLMError, extract_json
 from app.ai.retriever import BM25Index, search_with_fallback
 from app.api.v1.ai import get_chat_client
@@ -191,7 +192,9 @@ def test_diagnosis_returns_not_found_without_calling_model(
 ) -> None:
     fake = llm_override(FakeLLM({"causes": [{"text": "不该出现", "case_ids": ["C1"]}]}))
     # 语料为空是确定性的场景；固定成空索引，避免用例随语料增删而失效
-    monkeypatch.setattr(diagnosis, "get_corpus_index", lambda *_args, **_kwargs: BM25Index([]))
+    monkeypatch.setattr(
+        diagnosis, "get_indexes", lambda *_args, **_kwargs: IndexBundle(bm25=BM25Index([]))
+    )
 
     response = api_client.post(
         DIAGNOSIS,

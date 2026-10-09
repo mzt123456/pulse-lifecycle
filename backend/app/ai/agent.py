@@ -28,6 +28,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.ai import diagnosis, tools
+from app.ai.embedding import build_embedder
 from app.ai.llm import LLMError, ToolCallingClient
 from app.ai.rerank import build_reranker
 from app.core.config import get_settings
@@ -89,6 +90,7 @@ def build_diagnose_tool(llm: Any) -> tools.ToolSpec:
             reranker=build_reranker(
                 llm, enabled=settings.ai_rerank, min_score=settings.ai_rerank_min_score
             ),
+            embedder=build_embedder(settings),
         )
         return {
             "found": result["found"],

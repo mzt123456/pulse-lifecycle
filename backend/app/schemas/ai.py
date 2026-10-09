@@ -53,6 +53,15 @@ class TokenUsageOut(BaseModel):
     total_tokens: int
 
 
+class RetrievalOut(BaseModel):
+    """检索通道的实际使用情况：混合、纯关键词，以及降级原因。"""
+
+    mode: str = Field(description="hybrid 表示向量与关键词融合，bm25 表示只用关键词")
+    bm25_candidates: int = 0
+    vector_candidates: int = 0
+    note: str | None = Field(default=None, description="向量通道不可用时的原因")
+
+
 class RerankOut(BaseModel):
     """相关性重排的执行情况：保留几条、丢掉几条、是否降级。"""
 
@@ -78,6 +87,7 @@ class DiagnosisOut(BaseModel):
     filter_relaxed: bool = Field(description="是否因条件过窄而放宽了结构化过滤")
     usage: TokenUsageOut | None = Field(default=None, description="本次调用的 token 用量")
     rerank: RerankOut = Field(description="相关性重排的执行情况")
+    retrieval: RetrievalOut = Field(description="检索通道的使用情况")
 
 
 class CorpusSourceStat(BaseModel):

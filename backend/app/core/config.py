@@ -106,6 +106,33 @@ class Settings(BaseSettings):
     ai_rerank: bool = True
     ai_rerank_min_score: int = 5
 
+    # 向量检索（见 app/ai/embedding.py）：
+    #   none  = 只用 BM25（默认，零依赖）
+    #   api   = 走 OpenAI 兼容的 /embeddings（通义 text-embedding-v4、智谱 embedding-3 都兼容）
+    #   local = 本地 sentence-transformers 跑 BGE，语料不出内网
+    embedding_provider: str = Field(
+        default="none",
+        validation_alias=AliasChoices("EMBEDDING_PROVIDER", "AI_EMBEDDING_PROVIDER"),
+    )
+    embedding_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("EMBEDDING_API_KEY", "DASHSCOPE_API_KEY"),
+    )
+    embedding_base_url: str = Field(
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        validation_alias=AliasChoices("EMBEDDING_BASE_URL",),
+    )
+    embedding_model: str = Field(
+        default="text-embedding-v4",
+        validation_alias=AliasChoices("EMBEDDING_MODEL",),
+    )
+    embedding_dimensions: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EMBEDDING_DIMENSIONS",),
+    )
+    embedding_device: str = Field(default="", validation_alias=AliasChoices("EMBEDDING_DEVICE",))
+    embedding_timeout_seconds: float = 30.0
+
     # MCP Server：HTTP 传输默认要求访问令牌（stdio 用服务账号，见 app/mcp/auth.py）
     mcp_require_token: bool = True
     mcp_host: str = "127.0.0.1"
