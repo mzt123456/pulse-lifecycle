@@ -181,15 +181,72 @@ app/ai/skills/<技能名>/references/   # 参考资料，被显式引用时才�
 
 同一套工具定义还有第二个出口：MCP。外部客户端（Claude Code、Codex、Cursor 等）可以直接挂载。
 
+#### 启动
+
 ```
 cd backend
-.venv\Scripts\python.exe -m app.mcp.server                              # stdio
-set MCP_TRANSPORT=streamable-http && .venv\Scripts\python.exe -m app.mcp.server   # 内网 HTTP
+.venv\Scripts\python.exe -m app.mcp.server                                       # stdio，给本地客户端
+set MCP_TRANSPORT=streamable-http && .venv\Scripts\python.exe -m app.mcp.server  # 内网 HTTP，默认 127.0.0.1:8001
 ```
 
-身份用服务账号（环境变量 `MCP_USERNAME`，默认 `admin`），工具层照旧按该账号的权限点过滤——
-换传输方式不绕过权限。**只暴露查询类工具，写操作不开放**；另有两个只读资源
-`pulse://corpus/stats` 与 `pulse://audit/recent`。
+| 环境变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `MCP_TRANSPORT` | `stdio` | `stdio` 或 `streamable-http` |
+| `MCP_USERNAME` | `admin` | **仅 stdio** 使用的服务账号 |
+| `MCP_REQUIRE_TOKEN` | `true` | HTTP 传输是否必须带访问令牌；设 `false` 只用于本机调试 |
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8001` | HTTP 监听地址 |
+
+#### 客户端配置（stdio）
+
+```json
+{
+  "mcpServers": {
+    "pulse-lifecycle": {
+      "command": "C:\\codex_project\\update_for_single\\backend\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "app.mcp.server"],
+      "cwd": "C:\\codex_project\\update_for_single\\backend",
+      "env": { "PYTHONPATH": "C:\\codex_project\\update_for_single\\backend" }
+    }
+  }
+}
+```
+
+#### 接入 HTTP
+
+HTTP 是别人能访问的端点，所以**默认要求访问令牌**，身份就是令牌里的那个用户：
+
+```
+# 1) 先在主系统登录拿令牌
+curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
+     -H "Content-Type: application/json" \
+     -d "{\"username\":\"admin\",\"password\":\"你的口令\"}"
+
+# 2) 带上令牌访问 MCP（不带或无效会返回 401 missing_token / invalid_token）
+curl -X POST http://127.0.0.1:8001/mcp \
+     -H "Authorization: Bearer <access_token>" \
+     -H "Content-Type: application/json" \
+     -H "Accept: application/json, text/event-stream" \
+     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"
+```
+
+#### 暴露了什么
+
+| 类型 | 名称 | 权限 |
+| --- | --- | --- |
+| 工具 | `query_overview` | `report.view` |
+| 工具 | `query_equipment` | `equipment.view` |
+| 工具 | `query_fault_history` | `fault.view` |
+| 工具 | `query_maintenance_orders` | `maintenance.view` |
+| 工具 | `query_consumables` | `consumable.view` |
+| 工具 | `query_well_operations` | `well_operation.view` |
+| 工具 | `diagnose_fault`（故障案例检索与归因） | `fault.view` |
+| 工具 | `query_dict_items`（字典取值，登录即可读） | — |
+| 资源 | `pulse://corpus/stats`、`pulse://audit/recent` | 只读 |
+
+四条安全边界：**只暴露查询类工具，写操作一律不开放**；**无权限的工具不会出现在清单里**，
+工具层再兜一次校验；**每次调用写审计**（`object_type=ai_tool`，含参数摘要、成功与否、耗时），
+`pulse://audit/recent` 可以直接读出来核对；**stdio 下日志走标准错误**——标准输出是 JSON-RPC 通道，
+一行日志就能让客户端解析失败。
 
 ### 前端界面
 

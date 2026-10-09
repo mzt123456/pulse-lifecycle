@@ -35,9 +35,7 @@ from app.core.logging import configure_logging
 from app.db.session import get_session_factory
 from app.mcp.auth import MCPAuthMiddleware, principal_user_id
 from app.models.system import AuditLog
-from app.models.system import DictItem
 from app.models.user import User
-from app.services import dict as dict_service
 from app.services.auth import load_roles_and_permissions
 
 logger = logging.getLogger(__name__)
@@ -187,21 +185,8 @@ def build_server() -> Any:
 
     @server.tool(description="查询基础字典：设备状态、仪器类型、故障类型、维保等级等可选取值。")
     def query_dict_items(category: str | None = None) -> str:
-        factory = get_session_factory()
-        with factory() as session:
-            user = _service_user(session)
-            if user is None:
-                return _json({"ok": False, "error": "MCP 服务账号不存在或已停用"})
-            names = (
-                [category]
-                if category
-                else list(
-                    session.execute(
-                        select(DictItem.category).distinct().order_by(DictItem.category)
-                    ).scalars()
-                )
-            )
-            return _json({"ok": True, "items": {name: dict_service.options(session, name) for name in names}})
+        # 与其它工具走同一条路：同一套权限判定与审计留痕
+        return _json(execute("query_dict_items", {"category": category}))
 
     @server.resource("pulse://corpus/stats", description="知识库语料规模与来源构成")
     def corpus_stats_resource() -> str:

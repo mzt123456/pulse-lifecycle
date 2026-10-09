@@ -22,11 +22,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.core.audit import record_audit
 from app.core.errors import BusinessError
 from app.models.user import User
 from app.services import consumable as consumable_service
+from app.services import dict as dict_service
 from app.services import equipment as equipment_service
 from app.services import fault as fault_service
 from app.services import maintenance as maintenance_service
@@ -281,6 +283,26 @@ def _query_overview(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, An
     }
 
 
+def _query_dict_items(ctx: ToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    """基础字典：设备状态、仪器类型、故障类型、维保等级等可选取值。
+
+    这是纯配置数据，不涉及业务记录，所以不挂业务权限点（`permission=""` 表示登录即可），
+    但**仍然走同一套工具层**：一样写审计、一样受 MCP 的身份约束。
+    """
+    from app.models.system import DictItem
+
+    category = _text(arguments.get("category"), max_length=32)
+    if category:
+        categories = [category]
+    else:
+        categories = list(
+            ctx.db.execute(
+                select(DictItem.category).distinct().order_by(DictItem.category)
+            ).scalars()
+        )
+    return {"items": {name: dict_service.options(ctx.db, name) for name in categories}}
+
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="query_overview",
@@ -288,6 +310,23 @@ TOOLS: tuple[ToolSpec, ...] = (
         permission="report.view",
         parameters={"type": "object", "properties": {}, "required": []},
         handler=_query_overview,
+    ),
+    ToolSpec(
+        name="query_dict_items",
+        description=(
+            "查询基础字典的可选取值：设备状态、仪器类型、故障类型、维保等级、故障处理状态。"
+            "调用其它工具前如果不确定取值，先用它确认。"
+        ),
+        # 纯配置数据，登录即可读；空串表示不挂业务权限点
+        permission="",
+        parameters={
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "字典分类，留空返回全部分类"},
+            },
+            "required": [],
+        },
+        handler=_query_dict_items,
     ),
     ToolSpec(
         name="query_equipment",
@@ -376,9 +415,11 @@ def tools_for(permissions: Iterable[str]) -> list[ToolSpec]:
 
     这样模型连"试一试"的机会都没有，比调用后才拒绝更干净；
     真正的兜底校验在 `run_tool` 里，两处都留着。
+
+    `permission` 为空串表示登录即可（例如基础字典这类配置数据），对所有登录用户开放。
     """
     granted = set(permissions)
-    return [tool for tool in TOOLS if tool.permission in granted]
+    return [tool for tool in TOOLS if not tool.permission or tool.permission in granted]
 
 
 def run_tool(
@@ -399,7 +440,7 @@ def run_tool(
 
     if spec is None:
         return {"ok": False, "tool": name, "error": f"没有名为 {name} 的工具"}
-    if spec.permission not in ctx.permissions:
+    if spec.permission and spec.permission not in ctx.permissions:
         return {"ok": False, "tool": name, "error": "当前账号没有该数据的查看权限"}
 
     try:

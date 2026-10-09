@@ -69,6 +69,22 @@ def test_execute_rejects_tool_outside_registry() -> None:
     assert "没有名为" in result["error"]
 
 
+def test_dict_tool_goes_through_tool_layer_and_audits(auth_headers: dict[str, str], session_factory) -> None:
+    """基础字典以前是绕开工具层的特例，现在与其它工具同一条路（含审计）。"""
+    result = mcp_server.execute("query_dict_items", {})
+
+    assert result["ok"] is True
+    assert "仪器类型" in result["items"]
+
+    with session_factory() as session:
+        row = session.execute(
+            select(AuditLog)
+            .where(AuditLog.action == "ai.tool.query_dict_items")
+            .order_by(AuditLog.id.desc())
+        ).scalars().first()
+    assert row is not None
+
+
 def test_service_user_missing_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MCP_USERNAME", "no-such-account")
 

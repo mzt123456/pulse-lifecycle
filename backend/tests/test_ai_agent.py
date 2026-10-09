@@ -88,8 +88,22 @@ def admin_ctx(
 def test_tools_are_filtered_by_permission() -> None:
     names = {tool.name for tool in tools.tools_for(["equipment.view", "fault.view"])}
 
-    assert names == {"query_equipment", "query_fault_history"}
+    # 基础字典不挂业务权限点，属于"登录即可读"，所以总会出现在清单里
+    assert names == {"query_equipment", "query_fault_history", "query_dict_items"}
     assert "query_consumables" not in names
+
+
+def test_login_only_tool_is_available_without_business_permissions(
+    admin_ctx: tools.ToolContext,
+) -> None:
+    ctx = tools.ToolContext(db=admin_ctx.db, user=admin_ctx.user, permissions=frozenset())
+
+    exposed = {tool.name for tool in tools.tools_for(ctx.permissions)}
+    result = tools.run_tool(ctx, "query_dict_items", {})
+
+    assert exposed == {"query_dict_items"}
+    assert result["ok"] is True
+    assert "仪器类型" in result["items"]
 
 
 def test_run_tool_denies_without_permission(admin_ctx: tools.ToolContext) -> None:
@@ -174,7 +188,8 @@ def test_agent_hides_tools_without_permission(admin_ctx: tools.ToolContext) -> N
     )
 
     exposed = {item["function"]["name"] for item in llm.calls[0]["tools"]}
-    assert exposed == {"query_equipment"}, "无权限的工具不该出现在模型可见的工具清单里"
+    # 基础字典是登录即可读的配置数据，其余无权限的业务工具都不该出现
+    assert exposed == {"query_equipment", "query_dict_items"}, "无权限的工具不该出现在模型可见的工具清单里"
 
 
 def test_agent_reports_tool_error_back_to_model(admin_ctx: tools.ToolContext) -> None:
