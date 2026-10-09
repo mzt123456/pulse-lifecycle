@@ -258,6 +258,9 @@ def fuse_hits(
         )
         for entry in merged.values()
     ]
+    # 权重为 0 的那一路不参与：得分为 0 的候选直接丢掉，
+    # 这样 vector_weight=1 就是"只用向量"、=0 就是"只用关键词"，便于做消融对比
+    hits = [hit for hit in hits if hit.score > 0]
     hits.sort(key=lambda hit: (-hit.score, hit.document.doc_id))
     return hits[:top_k]
 

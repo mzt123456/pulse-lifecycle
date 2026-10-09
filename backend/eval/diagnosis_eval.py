@@ -77,7 +77,7 @@ def percentile(values: list[float], ratio: float) -> float:
 
 
 def evaluate_diagnosis(
-    limit: int | None, llm, session, reranker=None, embedder=None
+    limit: int | None, llm, session, reranker=None, embedder=None, vector_weight=0.5
 ) -> dict[str, float]:
     cases = synthetic_cases()[:limit] if limit else synthetic_cases()
     first_hits = top3_hits = found_any = 0
@@ -95,6 +95,7 @@ def evaluate_diagnosis(
             llm=llm,
             reranker=reranker,
             embedder=embedder,
+            vector_weight=vector_weight,
         )
         if result["found"]:
             found_any += 1
@@ -136,13 +137,19 @@ def evaluate_diagnosis(
 
 
 def evaluate_no_result(
-    llm, session, *, verbose: bool = False, reranker=None, embedder=None
+    llm, session, *, verbose: bool = False, reranker=None, embedder=None, vector_weight=0.5
 ) -> dict[str, float]:
     """无结果准确率：知识库里没有的东西，系统必须说没有，而不是编一个。"""
     correct = 0
     for query in OUT_OF_SCOPE_QUERIES:
         result = diagnosis.diagnose(
-            session, description=query, top_k=5, llm=llm, reranker=reranker, embedder=embedder
+            session,
+            description=query,
+            top_k=5,
+            llm=llm,
+            reranker=reranker,
+            embedder=embedder,
+            vector_weight=vector_weight,
         )
         # usage 为空说明压根没调用模型，这正是"检索为空不调模型"的硬约束
         ok = result["found"] is False and result.get("usage") is None
@@ -170,6 +177,9 @@ def main() -> None:
     parser.add_argument(
         "--no-vector", action="store_true", help="关闭向量通道，只跑关键词检索（对比用）"
     )
+    parser.add_argument(
+        "--vector-only", action="store_true", help="只用向量通道（对比用）"
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -184,13 +194,22 @@ def main() -> None:
         else build_reranker(llm, enabled=settings.ai_rerank, min_score=settings.ai_rerank_min_score)
     )
     embedder = None if args.no_vector else build_embedder(settings)
+    vector_weight = 1.0 if args.vector_only else 0.5
+    if args.vector_only:
+        embedder = build_embedder(settings)
 
     factory = get_session_factory()
     with factory() as session:
         print(f"相关性重排：{'关闭' if reranker is None else '开启'}")
         print(f"向量检索：{'关闭（纯关键词）' if embedder is None else embedder.name}")
+        print(f"融合权重：向量 {vector_weight:.1f} / 关键词 {1 - vector_weight:.1f}")
         no_result = evaluate_no_result(
-            llm, session, verbose=args.verbose, reranker=reranker, embedder=embedder
+            llm,
+            session,
+            verbose=args.verbose,
+            reranker=reranker,
+            embedder=embedder,
+            vector_weight=vector_weight,
         )
         print("【无结果准确率】")
         print(
@@ -202,7 +221,12 @@ def main() -> None:
             return
 
         metrics = evaluate_diagnosis(
-            args.limit, llm, session, reranker=reranker, embedder=embedder
+            args.limit,
+            llm,
+            session,
+            reranker=reranker,
+            embedder=embedder,
+            vector_weight=vector_weight,
         )
         print("\n【原因匹配率】")
         print(f"  查询条数        {metrics['queries']}")

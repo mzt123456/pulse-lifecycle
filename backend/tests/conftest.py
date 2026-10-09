@@ -11,6 +11,12 @@ import os
 # 限流本身由 tests/test_ratelimit.py 单独验证。
 os.environ.setdefault("LOGIN_RATE_LIMIT_PER_MINUTE", "1000")
 
+# 测试必须离线可跑、且不消耗真实额度。
+# .env 里可能配了真实的向量与模型服务，这里用环境变量把它们关掉（环境变量优先级高于 .env）：
+# 需要向量通道的用例自己覆盖 get_embedder 依赖，需要模型的地方一律注入假客户端。
+os.environ.setdefault("EMBEDDING_PROVIDER", "none")
+os.environ.setdefault("DEEPSEEK_API_KEY", "")
+
 from collections.abc import Iterator
 from pathlib import Path
 

@@ -266,6 +266,10 @@ def diagnose(
         }
         hits = list(reranked.hits)
 
+    # 候选取多是给融合与重排留余量；进入提示词与页面展示的仍只要 top_k 条，
+    # 否则提示词会被无关候选撑长，token 与延迟都白涨
+    hits = hits[:top_k]
+
     case_map: dict[str, str] = {}
     matches: list[dict[str, Any]] = []
     cases_block = ""
