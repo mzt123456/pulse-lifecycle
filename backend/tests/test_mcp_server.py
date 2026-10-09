@@ -5,11 +5,17 @@ import logging
 import sys
 
 import anyio
+import httpx
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.mcp import auth as mcp_auth
 from app.mcp import server as mcp_server
+from app.models.system import AuditLog
+from app.models.user import User
 
 # 写操作绝不能出现在 MCP 出口上：任何客户端一句话就能改生产数据的口子不能开
 WRITE_HINTS = ("create", "update", "delete", "import", "issue", "login", "upload")
@@ -87,3 +93,75 @@ def test_logging_can_be_redirected() -> None:
         assert "写入重定向流" in buffer.getvalue()
     finally:
         configure_logging(get_settings())  # 还原成默认 stdout，避免影响其它用例
+
+
+# ------------------------------------------------------------------ HTTP 鉴权
+
+
+def _http_app():
+    """只挂中间件的 MCP HTTP 应用，用内存 ASGI 传输直接打，省去真的起进程。"""
+    app = mcp_server.build_server().streamable_http_app()
+    app.add_middleware(mcp_auth.MCPAuthMiddleware, require_token=True)
+    return app
+
+
+def _post(path: str, headers: dict[str, str]) -> httpx.Response:
+    async def call() -> httpx.Response:
+        app = _http_app()
+        transport = httpx.ASGITransport(app=app)
+        # MCP 的会话管理器要在 lifespan 里建立任务组，绕过 lifespan 会直接报错
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=transport, base_url="http://mcp.test") as client:
+                return await client.post(
+                    path,
+                    headers=headers,
+                    json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                )
+
+    return anyio.run(call)
+
+
+def test_http_requires_token() -> None:
+    response = _post("/mcp", {})
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "missing_token"
+
+
+def test_http_rejects_invalid_token() -> None:
+    response = _post("/mcp", {"Authorization": "Bearer not-a-real-token"})
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "invalid_token"
+
+
+def test_http_accepts_valid_token(auth_headers: dict[str, str]) -> None:
+    # 带合法令牌时不再被鉴权拦下（后面 MCP 协议自己会校验请求体，这里只看不是 401）
+    response = _post("/mcp", {"Authorization": auth_headers["Authorization"]})
+
+    assert response.status_code != 401
+
+
+def test_principal_overrides_service_account(
+    readonly_headers: dict[str, str], session_factory: sessionmaker
+) -> None:
+    """带令牌时以调用者身份执行，审计里应是调用者而不是服务账号。"""
+    with session_factory() as session:
+        caller = session.execute(
+            select(User).where(User.username == "readonly_test")
+        ).scalar_one()
+        caller_id = caller.id
+
+    reset = mcp_auth.principal_user_id.set(caller_id)
+    try:
+        result = mcp_server.execute("query_overview", {})
+    finally:
+        mcp_auth.principal_user_id.reset(reset)
+
+    assert result["ok"] is True
+    with session_factory() as session:
+        row = session.execute(
+            select(AuditLog).where(AuditLog.action == "ai.tool.query_overview").order_by(AuditLog.id.desc())
+        ).scalars().first()
+    assert row is not None
+    assert row.username == "readonly_test"

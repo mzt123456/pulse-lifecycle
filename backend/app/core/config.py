@@ -102,6 +102,14 @@ class Settings(BaseSettings):
     # 检索：返回条数上限与是否把仿真案例计入语料（真实数据到位后可关掉仿真）
     ai_top_k: int = 5
     ai_include_synthetic: bool = True
+    # 相关性重排：用对话模型过滤"字面撞词但语义无关"的候选（见 app/ai/rerank.py）
+    ai_rerank: bool = True
+    ai_rerank_min_score: int = 5
+
+    # MCP Server：HTTP 传输默认要求访问令牌（stdio 用服务账号，见 app/mcp/auth.py）
+    mcp_require_token: bool = True
+    mcp_host: str = "127.0.0.1"
+    mcp_port: int = 8001
 
     @property
     def attachment_path(self) -> Path:

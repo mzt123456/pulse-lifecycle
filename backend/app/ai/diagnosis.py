@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.llm import ChatClient, LLMError
 from app.ai.prompts import SYSTEM_PROMPT, build_cases_block, build_diagnosis_prompt
+from app.ai.rerank import Reranker
 from app.ai.retriever import SearchHit, search_with_fallback
 from app.ai.index_store import get_corpus_index
 from app.services import equipment as equipment_service
@@ -38,14 +39,23 @@ def _payload(hit: SearchHit, key: str) -> Any:
     return hit.document.payload.get(key)
 
 
-def _serialize_match(hit: SearchHit, alias: str) -> dict[str, Any]:
+def _serialize_match(
+    hit: SearchHit,
+    alias: str,
+    *,
+    rerank_scores: dict[str, int] | None = None,
+    rerank_reasons: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    doc_id = hit.document.doc_id
     return {
         "alias": alias,
-        "doc_id": hit.document.doc_id,
+        "doc_id": doc_id,
         "source": hit.document.source,
         "source_label": hit.document.source_label,
         "title": hit.document.title,
         "score": round(hit.score, 3),
+        "rerank_score": (rerank_scores or {}).get(doc_id),
+        "rerank_reason": (rerank_reasons or {}).get(doc_id),
         "matched_terms": list(hit.matched_terms),
         "record_id": _payload(hit, "record_id"),
         "equipment_no": _payload(hit, "equipment_no"),
@@ -127,6 +137,13 @@ def _base_result(
         "elapsed_ms": elapsed_ms,
         "filter_relaxed": filter_relaxed,
         "usage": None,
+        "rerank": {
+            "applied": False,
+            "kept": len(matches),
+            "dropped": 0,
+            "degraded": False,
+            "total_tokens": 0,
+        },
     }
 
 
@@ -144,6 +161,7 @@ def diagnose(
     top_k: int = 5,
     include_synthetic: bool = True,
     llm: ChatClient | None = None,
+    reranker: Reranker | None = None,
 ) -> dict[str, Any]:
     """给一段故障现象，返回可能原因、建议处置与引用案例。"""
     started = time.perf_counter()
@@ -167,30 +185,64 @@ def diagnose(
     }
     outcome = search_with_fallback(index, description, top_k=top_k, filters=filters or None)
 
+    hits = list(outcome.hits)
+    rerank_scores: dict[str, int] = {}
+    rerank_reasons: dict[str, str] = {}
+    rerank_info = {
+        "applied": False,
+        "kept": len(hits),
+        "dropped": 0,
+        "degraded": False,
+    }
+    if hits and reranker is not None:
+        reranked = reranker.rerank(description=description, hits=hits)
+        rerank_scores = dict(reranked.scores)
+        rerank_reasons = dict(reranked.reasons)
+        rerank_info = {
+            "applied": reranked.applied,
+            "kept": len(reranked.hits),
+            "dropped": len(hits) - len(reranked.hits),
+            "degraded": reranked.degraded,
+            "total_tokens": reranked.total_tokens,
+        }
+        hits = list(reranked.hits)
+
     case_map: dict[str, str] = {}
     matches: list[dict[str, Any]] = []
     cases_block = ""
-    if outcome.hits:
+    if hits:
         # build_cases_block 只渲染前 8 条，位置索引与 hits 前若干项一一对应
-        cases_block, case_map = build_cases_block(outcome.hits)
+        cases_block, case_map = build_cases_block(hits)
         matches = [
-            _serialize_match(outcome.hits[position], alias)
+            _serialize_match(
+                hits[position],
+                alias,
+                rerank_scores=rerank_scores,
+                rerank_reasons=rerank_reasons,
+            )
             for position, alias in enumerate(case_map)
         ]
 
     model_name = getattr(llm, "model", None)
 
     # 检索为空：不调用模型，明确回答「未找到」，这是抗幻觉的第一道闸门
-    if not outcome.hits:
-        return _base_result(
+    if not hits:
+        reason = (
+            "检索到的案例经相关性重排后都不相关"
+            if rerank_info["applied"] and rerank_info["dropped"]
+            else "语料中没有与现象描述匹配的案例"
+        )
+        result = _base_result(
             found=False,
             degraded=False,
-            reason="语料中没有与现象描述匹配的案例",
+            reason=reason,
             matches=[],
             elapsed_ms=_elapsed_ms(started),
             filter_relaxed=False,
             model=model_name,
         )
+        result["rerank"] = rerank_info
+        return result
 
     # 未配置模型或调用失败：降级为相似案例列表
     if llm is None:
@@ -203,10 +255,11 @@ def diagnose(
             filter_relaxed=outcome.relaxed,
             model=None,
         )
-        result["causes"] = _collect(outcome.hits, "cause")
-        result["actions"] = _collect(outcome.hits, "solution")
+        result["causes"] = _collect(hits, "cause")
+        result["actions"] = _collect(hits, "solution")
         result["confidence"] = "低"
         result["note"] = DEGRADED_NOTE
+        result["rerank"] = rerank_info
         return result
 
     prompt = build_diagnosis_prompt(
@@ -230,10 +283,11 @@ def diagnose(
             filter_relaxed=outcome.relaxed,
             model=model_name,
         )
-        result["causes"] = _collect(outcome.hits, "cause")
-        result["actions"] = _collect(outcome.hits, "solution")
+        result["causes"] = _collect(hits, "cause")
+        result["actions"] = _collect(hits, "solution")
         result["confidence"] = "低"
         result["note"] = DEGRADED_NOTE
+        result["rerank"] = rerank_info
         return result
 
     causes = _normalize_items(raw.get("causes"), case_map)
@@ -268,6 +322,7 @@ def diagnose(
     result["confidence"] = confidence
     result["note"] = note
     result["citations"] = citations
+    result["rerank"] = rerank_info
     usage = getattr(llm, "last_usage", None)
     if usage is not None:
         # 单次成本的可观测性：token 用量一起返回，方便算钱与优化提示词

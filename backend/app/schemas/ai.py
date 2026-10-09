@@ -28,6 +28,8 @@ class DiagnosisMatch(BaseModel):
     source_label: str
     title: str
     score: float
+    rerank_score: int | None = Field(default=None, description="相关性重排打分（0-10）")
+    rerank_reason: str | None = Field(default=None, description="重排给出的理由")
     matched_terms: list[str]
     record_id: int | None = None
     equipment_no: str | None = None
@@ -51,6 +53,16 @@ class TokenUsageOut(BaseModel):
     total_tokens: int
 
 
+class RerankOut(BaseModel):
+    """相关性重排的执行情况：保留几条、丢掉几条、是否降级。"""
+
+    applied: bool
+    kept: int
+    dropped: int
+    degraded: bool
+    total_tokens: int = Field(default=0, description="重排自身的 token 用量")
+
+
 class DiagnosisOut(BaseModel):
     found: bool = Field(description="是否检索到相似案例")
     degraded: bool = Field(description="是否降级（未经过大模型归纳）")
@@ -65,6 +77,7 @@ class DiagnosisOut(BaseModel):
     elapsed_ms: int
     filter_relaxed: bool = Field(description="是否因条件过窄而放宽了结构化过滤")
     usage: TokenUsageOut | None = Field(default=None, description="本次调用的 token 用量")
+    rerank: RerankOut = Field(description="相关性重排的执行情况")
 
 
 class CorpusSourceStat(BaseModel):

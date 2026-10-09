@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.ai import diagnosis  # noqa: E402
 from app.ai.llm import build_chat_client  # noqa: E402
+from app.ai.rerank import build_reranker  # noqa: E402
 from app.ai.synthetic_cases import synthetic_cases  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import get_session_factory  # noqa: E402
@@ -74,11 +75,13 @@ def percentile(values: list[float], ratio: float) -> float:
     return ordered[index]
 
 
-def evaluate_diagnosis(limit: int | None, llm, session) -> dict[str, float]:
+def evaluate_diagnosis(limit: int | None, llm, session, reranker=None) -> dict[str, float]:
     cases = synthetic_cases()[:limit] if limit else synthetic_cases()
     first_hits = top3_hits = found_any = 0
     latencies: list[float] = []
     prompt_tokens = completion_tokens = 0
+    dropped_total = reranked_total = 0
+    rerank_tokens = 0
 
     for case in cases:
         result = diagnosis.diagnose(
@@ -86,10 +89,15 @@ def evaluate_diagnosis(limit: int | None, llm, session) -> dict[str, float]:
             description=case.colloquial,
             top_k=5,
             llm=llm,
+            reranker=reranker,
         )
         if result["found"]:
             found_any += 1
         latencies.append(float(result["elapsed_ms"]))
+        if result["rerank"]["applied"]:
+            reranked_total += 1
+            dropped_total += result["rerank"]["dropped"]
+            rerank_tokens += int(result["rerank"].get("total_tokens") or 0)
 
         causes = [item["text"] for item in result["causes"]]
         if causes and cause_matches(causes[0], case.cause):
@@ -113,14 +121,19 @@ def evaluate_diagnosis(limit: int | None, llm, session) -> dict[str, float]:
         "completion_tokens_avg": completion_tokens / total,
         "prompt_tokens_total": prompt_tokens,
         "completion_tokens_total": completion_tokens,
+        "reranked_queries": reranked_total,
+        "dropped_total": dropped_total,
+        "rerank_tokens_avg": rerank_tokens / total,
     }
 
 
-def evaluate_no_result(llm, session, *, verbose: bool = False) -> dict[str, float]:
+def evaluate_no_result(llm, session, *, verbose: bool = False, reranker=None) -> dict[str, float]:
     """无结果准确率：知识库里没有的东西，系统必须说没有，而不是编一个。"""
     correct = 0
     for query in OUT_OF_SCOPE_QUERIES:
-        result = diagnosis.diagnose(session, description=query, top_k=5, llm=llm)
+        result = diagnosis.diagnose(
+            session, description=query, top_k=5, llm=llm, reranker=reranker
+        )
         # usage 为空说明压根没调用模型，这正是"检索为空不调模型"的硬约束
         ok = result["found"] is False and result.get("usage") is None
         if ok:
@@ -141,6 +154,9 @@ def main() -> None:
     parser.add_argument("--price-in", type=float, default=0.0, help="输入单价（元/百万 token）")
     parser.add_argument("--price-out", type=float, default=0.0, help="输出单价（元/百万 token）")
     parser.add_argument("--verbose", action="store_true", help="打印域外问题的误召回明细")
+    parser.add_argument(
+        "--no-rerank", action="store_true", help="关闭相关性重排，用于对比重排前后的指标"
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -149,21 +165,36 @@ def main() -> None:
         print("未配置 DEEPSEEK_API_KEY，无法跑端到端指标；可先用 --no-model。")
         return
 
+    reranker = (
+        None
+        if args.no_rerank
+        else build_reranker(llm, enabled=settings.ai_rerank, min_score=settings.ai_rerank_min_score)
+    )
+
     factory = get_session_factory()
     with factory() as session:
-        no_result = evaluate_no_result(llm, session, verbose=args.verbose)
+        print(f"相关性重排：{'关闭' if reranker is None else '开启'}")
+        no_result = evaluate_no_result(llm, session, verbose=args.verbose, reranker=reranker)
         print("【无结果准确率】")
-        print(f"  域外问题 {no_result['queries']} 条，正确回答未找到 {no_result['accuracy'] * 100:.1f}%")
+        print(
+            f"  域外问题 {no_result['queries']} 条，正确回答未找到 "
+            f"{no_result['accuracy'] * 100:.1f}%（且未进入生成环节）"
+        )
 
         if args.no_model:
             return
 
-        metrics = evaluate_diagnosis(args.limit, llm, session)
+        metrics = evaluate_diagnosis(args.limit, llm, session, reranker=reranker)
         print("\n【原因匹配率】")
         print(f"  查询条数        {metrics['queries']}")
         print(f"  检索到案例比例  {metrics['found_rate'] * 100:.1f}%")
         print(f"  首位原因命中    {metrics['cause@1'] * 100:.1f}%")
         print(f"  前三位原因覆盖  {metrics['cause@3'] * 100:.1f}%")
+        if metrics["reranked_queries"]:
+            print(
+                f"  重排执行        {metrics['reranked_queries']} 次，"
+                f"共丢弃候选 {metrics['dropped_total']} 条"
+            )
 
         print("\n【延迟与成本】")
         print(f"  P50 延迟        {metrics['p50_ms']:.0f} ms")
@@ -173,6 +204,11 @@ def main() -> None:
                 metrics["prompt_tokens_avg"], metrics["completion_tokens_avg"]
             )
         )
+        if metrics["rerank_tokens_avg"]:
+            print(
+                f"  重排 token 均值 {metrics['rerank_tokens_avg']:.0f}"
+                f"（单次总成本 = 生成 + 重排）"
+            )
         if args.price_in or args.price_out:
             cost = (
                 metrics["prompt_tokens_total"] * args.price_in

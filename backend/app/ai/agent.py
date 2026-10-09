@@ -29,6 +29,8 @@ from sqlalchemy.orm import Session
 
 from app.ai import diagnosis, tools
 from app.ai.llm import LLMError, ToolCallingClient
+from app.ai.rerank import build_reranker
+from app.core.config import get_settings
 from app.ai.skills.loader import (
     full_context_size,
     load_skills,
@@ -76,6 +78,7 @@ def build_diagnose_tool(llm: Any) -> tools.ToolSpec:
         if equipment_no and equipment_id is None:
             return {"found": False, "note": f"没有找到编号为 {equipment_no} 的设备", "causes": []}
 
+        settings = get_settings()
         result = diagnosis.diagnose(
             ctx.db,
             description=tools._text(arguments.get("description"), max_length=500) or "",
@@ -83,6 +86,9 @@ def build_diagnose_tool(llm: Any) -> tools.ToolSpec:
             equipment_id=equipment_id,
             top_k=min(tools._limit(arguments.get("top_k")), 5),
             llm=llm,
+            reranker=build_reranker(
+                llm, enabled=settings.ai_rerank, min_score=settings.ai_rerank_min_score
+            ),
         )
         return {
             "found": result["found"],

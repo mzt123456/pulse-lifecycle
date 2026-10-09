@@ -33,6 +33,7 @@ from app.ai.llm import build_chat_client
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import get_session_factory
+from app.mcp.auth import MCPAuthMiddleware, principal_user_id
 from app.models.system import AuditLog
 from app.models.system import DictItem
 from app.models.user import User
@@ -47,6 +48,18 @@ LOG_STREAM = sys.stderr
 
 
 def _service_user(session: Session) -> User | None:
+    """HTTP 传输用调用者自己的账号；stdio 用服务账号。
+
+    令牌已经过 MCPAuthMiddleware 校验，这里只负责把用户取出来并确认仍然可用。
+    """
+    principal_id = principal_user_id.get()
+    if principal_id is not None:
+        user = session.get(User, principal_id)
+        if user is None or not user.is_active:
+            logger.warning("MCP 调用者账号不可用：id=%s", principal_id)
+            return None
+        return user
+
     username = os.getenv("MCP_USERNAME") or get_settings().initial_admin_username
     user = session.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user is None or not user.is_active:
@@ -238,10 +251,27 @@ def build_server() -> Any:
 
 
 def main() -> None:
-    configure_logging(get_settings(), stream=LOG_STREAM)
+    settings = get_settings()
+    configure_logging(settings, stream=LOG_STREAM)
     transport = os.getenv("MCP_TRANSPORT", "stdio")
     server = build_server()
     logger.info("启动 MCP Server（传输方式：%s）", transport)
+
+    if transport == "streamable-http":
+        # HTTP 是别人能访问的端点，日志可以走标准输出；身份走访问令牌
+        import uvicorn
+
+        app = server.streamable_http_app(host=settings.mcp_host)
+        app.add_middleware(MCPAuthMiddleware, require_token=settings.mcp_require_token)
+        logger.info(
+            "HTTP 传输监听 %s:%s，要求访问令牌：%s",
+            settings.mcp_host,
+            settings.mcp_port,
+            settings.mcp_require_token,
+        )
+        uvicorn.run(app, host=settings.mcp_host, port=settings.mcp_port, log_level="info")
+        return
+
     server.run(transport=transport)  # type: ignore[arg-type]
 
 

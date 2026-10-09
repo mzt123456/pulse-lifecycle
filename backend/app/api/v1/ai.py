@@ -14,6 +14,7 @@ from app.ai import corpus as corpus_module
 from app.ai import agent
 from app.ai import diagnosis
 from app.ai.llm import build_chat_client
+from app.ai.rerank import build_reranker
 from app.core.config import get_settings
 from app.core.deps import get_current_user, require_permission
 from app.core.response import ApiResponse, ok
@@ -46,6 +47,9 @@ def diagnose_fault(
     llm: Any = Depends(get_chat_client),
 ) -> dict:
     settings = get_settings()
+    reranker = build_reranker(
+        llm, enabled=settings.ai_rerank, min_score=settings.ai_rerank_min_score
+    )
     result = diagnosis.diagnose(
         db,
         description=payload.description,
@@ -55,6 +59,7 @@ def diagnose_fault(
         top_k=payload.top_k or settings.ai_top_k,
         include_synthetic=settings.ai_include_synthetic,
         llm=llm,
+        reranker=reranker,
     )
     return ok(DiagnosisOut.model_validate(result).model_dump(mode="json"))
 
