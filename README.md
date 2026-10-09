@@ -60,6 +60,29 @@ copy .env.example .env
 
 接口文档在 `http://127.0.0.1:8000/docs`，健康检查在 `http://127.0.0.1:8000/api/v1/health`。
 
+## 智能运维助手（RAG）
+
+在既有业务系统上增加故障案例检索与诊断，代码在 `backend/app/ai/`（语料、检索、生成层）。
+
+| 接口 | 说明 | 权限 |
+| --- | --- | --- |
+| `POST /api/v1/ai/diagnosis` | 输入故障现象，返回可能原因、建议处置与引用案例 | `fault.view` |
+| `GET /api/v1/ai/corpus/stats` | 语料规模与来源构成 | `system.settings` |
+
+链路是「结构化预过滤 → BM25 检索 → 大模型归纳 → 引用校验」，两条抗幻觉约束：
+检索为空时不调用模型，直接回答未找到；模型给出的引用必须能在本次检索结果里对上，
+对不上的引用一律丢弃，一条不剩时置信度强制降为「低」。
+
+生成层走 OpenAI 兼容协议，默认 DeepSeek，Key 放在 `backend/.env`（不入库）。
+**没有 Key 或模型超时、报错时接口自动降级为只返回相似案例列表**，不影响页面可用。
+
+检索质量可以用 40 条口语描述评测（在 `backend/` 下执行）：
+
+```
+.venv\Scripts\python.exe eval\retrieval_eval.py          # 行业词典 + 同义词扩展
+.venv\Scripts\python.exe eval\retrieval_eval.py --plain  # 基线，用于对比
+```
+
 ## 配置与密钥
 
 仓库只提交 `.env.example`，真实的 `.env` 不进入版本库，JWT 密钥在部署时随机生成并单独保管。

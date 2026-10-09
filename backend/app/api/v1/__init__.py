@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai,
     attachments,
     auth,
     consumables,
@@ -30,3 +31,4 @@ api_router.include_router(attachments.router)
 api_router.include_router(system.router)
 api_router.include_router(reports.router)
 api_router.include_router(preferences.router)
+api_router.include_router(ai.router)

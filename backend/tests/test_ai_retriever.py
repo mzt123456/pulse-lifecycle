@@ -73,3 +73,18 @@ def test_equal_scores_fall_back_to_doc_id_for_stable_order() -> None:
 def test_index_exposes_document_count() -> None:
     assert len(BM25Index([])) == 0
     assert len(BM25Index([_doc("a", "压力异常")])) == 1
+
+
+def test_terms_present_in_most_documents_are_ignored_on_large_corpus() -> None:
+    """语料够大时，几乎每条都有的词不该成为命中理由。"""
+    common = "【现象】压力异常 【原因】密封圈老化"
+    documents = [_doc(f"common-{i}", common) for i in range(12)]
+    documents.append(_doc("target", "【现象】地面解码误码率偏高 【原因】脉冲波形畸变"))
+
+    index = BM25Index(documents)
+
+    # 「压力」「密封圈」出现在 13 条中的 12 条，超过半数，被判为无区分度词；
+    # 查询里只剩这类词时返回空，而不是把 12 条重复案例都倒出来
+    assert index.search("现象") == []
+    assert index.search("压力异常 密封圈") == []
+    assert [hit.document.doc_id for hit in index.search("脉冲波形畸变")] == ["target"]

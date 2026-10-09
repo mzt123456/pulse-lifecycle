@@ -79,6 +79,30 @@ class Settings(BaseSettings):
     maint_interval_hours: int = 500
     maint_interval_days: int = 90
 
+    # 智能运维助手：生成层用 OpenAI 兼容协议，默认指向 DeepSeek。
+    # Key 留空时接口不报错，自动降级为「只返回检索到的相似案例」。
+    llm_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("DEEPSEEK_API_KEY", "LLM_API_KEY"),
+        description="大模型 API Key；留空表示未配置，诊断接口降级为纯检索",
+    )
+    llm_base_url: str = Field(
+        default="https://api.deepseek.com/v1",
+        validation_alias=AliasChoices("DEEPSEEK_BASE_URL", "LLM_BASE_URL"),
+        description="OpenAI 兼容接口地址，换模型只改这里与模型名",
+    )
+    llm_model: str = Field(
+        default="deepseek-chat",
+        validation_alias=AliasChoices("DEEPSEEK_MODEL", "LLM_MODEL"),
+        description="模型名",
+    )
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 2
+
+    # 检索：返回条数上限与是否把仿真案例计入语料（真实数据到位后可关掉仿真）
+    ai_top_k: int = 5
+    ai_include_synthetic: bool = True
+
     @property
     def attachment_path(self) -> Path:
         return (BACKEND_DIR / self.attachment_dir).resolve()

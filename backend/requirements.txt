@@ -18,3 +18,5 @@ python-multipart==0.0.20
 # 智能运维助手：中文分词（检索基线）与向量运算
 jieba==0.42.1
 numpy==2.5.3
+# 大模型调用（OpenAI 兼容协议，直接走 HTTP，不引入各家 SDK）
+httpx==0.28.1

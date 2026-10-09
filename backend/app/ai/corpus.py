@@ -13,7 +13,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.document import SOURCE_FAULT_RECORD, CaseDocument, render_fault_text
+from app.ai.document import SOURCE_FAULT_RECORD, SOURCE_LABELS, CaseDocument, render_fault_text
 from app.ai.synthetic_cases import build_synthetic_case_documents
 from app.models.fault import FaultRecord
 
@@ -52,8 +52,15 @@ def build_fault_case_documents(db: Session, *, limit: int | None = None) -> list
                     "equipment_id": record.equipment_id,
                     "equipment_no": equipment.equipment_no if equipment else None,
                     "model": model,
+                    # 仪器类型在仿真案例里是字典取值；真实记录用设备型号对齐，
+                    # 这样按仪器类型过滤时两类语料落在同一个字段上。
+                    "instrument_type": model,
                     "fault_type": record.fault_type,
                     "status": record.status,
+                    # 降级路径要直接回显原因与处置，避免为了这两列再查一次库
+                    "description": record.description,
+                    "cause": record.cause,
+                    "solution": record.solution,
                 },
             )
         )
@@ -66,3 +73,24 @@ def build_corpus(db: Session, *, include_synthetic: bool = True) -> list[CaseDoc
     if include_synthetic:
         documents.extend(build_synthetic_case_documents())
     return documents
+
+
+def corpus_stats(db: Session, *, include_synthetic: bool = True) -> dict:
+    """语料规模与来源构成，供演示与排查使用（真实数据接入后可对比两类的占比）。"""
+    documents = build_corpus(db, include_synthetic=include_synthetic)
+    counts: dict[str, int] = {}
+    for document in documents:
+        counts[document.source] = counts.get(document.source, 0) + 1
+
+    return {
+        "total": len(documents),
+        "include_synthetic": include_synthetic,
+        "by_source": [
+            {
+                "source": source,
+                "source_label": SOURCE_LABELS.get(source, source),
+                "count": count,
+            }
+            for source, count in sorted(counts.items())
+        ],
+    }
