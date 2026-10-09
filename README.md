@@ -124,7 +124,7 @@ BM25 只看字面，救不了"软件著作权"与"地面软件"这种撞词。�
 | 模式 | 配置 | 说明 |
 | --- | --- | --- |
 | 关键词 | `EMBEDDING_PROVIDER=none` | 默认，零依赖，BM25 + 行业词典 + 同义扩展 |
-| 向量（API） | `EMBEDDING_PROVIDER=api` + `EMBEDDING_API_KEY` | OpenAI 兼容的 `/embeddings`，通义 `text-embedding-v4`、智谱 `embedding-3` 都兼容 |
+| 向量（API） | `EMBEDDING_PROVIDER=api` + `EMBEDDING_API_KEY` | OpenAI 兼容的 `/embeddings`；默认用通义 `qwen3.7-text-embedding`（256~2560 维可自定义），同源 `text-embedding-v4` 与智谱 `embedding-3` 也兼容 |
 | 向量（本地） | `EMBEDDING_PROVIDER=local` + `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5` | 需 `pip install sentence-transformers`（含 torch）；**语料不出内网**，上生产时用这条 |
 
 开着向量时是**混合检索**：两路各取若干候选，归一化后加权融合（`AI_VECTOR_WEIGHT` 可调，
@@ -134,6 +134,13 @@ BM25 只看字面，救不了"软件著作权"与"地面软件"这种撞词。�
 - 向量化失败**记冷却时间**（默认 60 秒），避免每个请求都白等一次超时；这期间退回纯关键词；
 - 查询向量化失败只影响这一路，关键词检索照常出结果，响应里 `retrieval.mode` 与 `note` 说明当前用的哪条路；
 - 结构化过滤（故障类型、仪器类型）在向量侧同样生效，条件过窄时与关键词侧一致地放宽。
+
+配置好之后先自检，再跑评测（都在 `backend/` 下执行）：
+
+```
+.venv\Scripts\python.exe eval\probe_embedding.py   # 验 key、模型名、维度、延迟与相似度区分度
+.venv\Scripts\python.exe eval\diagnosis_eval.py    # 全链路指标（含检索通道统计）
+```
 
 ### Agent 工具与技能
 

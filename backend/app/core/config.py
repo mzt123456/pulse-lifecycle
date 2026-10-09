@@ -123,7 +123,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("EMBEDDING_BASE_URL",),
     )
     embedding_model: str = Field(
-        default="text-embedding-v4",
+        # 通义实验室的多语言统一向量模型，256~2560 维可自定义；
+        # 同源的 text-embedding-v4 也兼容，换名字即可
+        default="qwen3.7-text-embedding",
         validation_alias=AliasChoices("EMBEDDING_MODEL",),
     )
     embedding_dimensions: int | None = Field(
