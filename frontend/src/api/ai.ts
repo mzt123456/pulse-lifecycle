@@ -8,7 +8,12 @@ export interface DiagnosisMatch {
   source: string
   source_label: string
   title: string
+  /** 融合分：关键词与向量两路归一化加权后的匹配度（0-1） */
   score: number
+  /** 相关性重排打分（0-10），未执行重排时为空 */
+  rerank_score: number | null
+  /** 重排给出的理由 */
+  rerank_reason: string | null
   matched_terms: string[]
   record_id: number | null
   equipment_no: string | null
@@ -28,6 +33,23 @@ export interface TokenUsage {
   total_tokens: number
 }
 
+export interface RetrievalInfo {
+  /** hybrid 表示向量与关键词融合，bm25 表示只用关键词 */
+  mode: string
+  bm25_candidates: number
+  vector_candidates: number
+  /** 向量通道不可用时的原因 */
+  note: string | null
+}
+
+export interface RerankInfo {
+  applied: boolean
+  kept: number
+  dropped: number
+  degraded: boolean
+  total_tokens: number
+}
+
 export interface DiagnosisResult {
   found: boolean
   degraded: boolean
@@ -42,6 +64,8 @@ export interface DiagnosisResult {
   elapsed_ms: number
   filter_relaxed: boolean
   usage: TokenUsage | null
+  retrieval: RetrievalInfo
+  rerank: RerankInfo
 }
 
 export interface AskStep {

@@ -116,7 +116,16 @@ function citeTitle(result: DiagnosisResult, docId: string): string {
   if (!match) {
     return docId
   }
-  return `${match.source_label}｜${match.title}（匹配度 ${match.score}）`
+  const rerank = match.rerank_score === null ? '' : `，重排 ${match.rerank_score}/10`
+  return `${match.source_label}｜${match.title}（融合分 ${match.score}${rerank}）`
+}
+
+/** 检索通道的中文展示：混合、关键词，以及向量不可用时的原因。 */
+function retrievalLabel(result: DiagnosisResult): string {
+  const { mode, bm25_candidates: bm25, vector_candidates: vector } = result.retrieval
+  return mode === 'hybrid'
+    ? `混合检索（关键词 ${bm25} 条 / 向量 ${vector} 条）`
+    : `关键词检索（${bm25} 条）`
 }
 
 async function submit(): Promise<void> {
@@ -272,11 +281,29 @@ async function submit(): Promise<void> {
           title="按条件没有命中，已自动放宽过滤范围"
           class="assistant-alert"
         />
+        <el-alert
+          v-if="entry.diagnosis.retrieval.note"
+          type="info"
+          :closable="false"
+          :title="entry.diagnosis.retrieval.note"
+          class="assistant-alert"
+        />
+        <el-alert
+          v-if="entry.diagnosis.rerank.degraded"
+          type="warning"
+          :closable="false"
+          title="相关性重排本次未生效，候选按原顺序保留，结论请谨慎采用"
+          class="assistant-alert"
+        />
 
         <div class="assistant-meta">
           <el-tag v-if="entry.diagnosis.confidence" size="small" type="warning">
             置信度 {{ entry.diagnosis.confidence }}
           </el-tag>
+          <el-tag size="small" type="info">{{ retrievalLabel(entry.diagnosis) }}</el-tag>
+          <span v-if="entry.diagnosis.rerank.applied">
+            重排保留 {{ entry.diagnosis.rerank.kept }} / 丢弃 {{ entry.diagnosis.rerank.dropped }}
+          </span>
           <span>耗时 {{ entry.diagnosis.elapsed_ms }} ms</span>
           <span v-if="entry.diagnosis.model">模型 {{ entry.diagnosis.model }}</span>
           <span v-if="entry.diagnosis.usage">
@@ -332,9 +359,19 @@ async function submit(): Promise<void> {
               <el-table-column prop="alias" label="编号" width="70" align="center" />
               <el-table-column prop="source_label" label="来源" width="110" />
               <el-table-column prop="title" label="案例" min-width="220" show-overflow-tooltip />
-              <el-table-column prop="score" label="匹配度" width="90" align="right" />
+              <el-table-column prop="score" label="融合分" width="90" align="right" />
+              <el-table-column label="重排分" width="90" align="right">
+                <template #default="{ row }">
+                  <el-tooltip v-if="row.rerank_score !== null" :content="row.rerank_reason || '重排未给出理由'" placement="top">
+                    <span>{{ row.rerank_score }}/10</span>
+                  </el-tooltip>
+                  <span v-else>—</span>
+                </template>
+              </el-table-column>
               <el-table-column label="命中词" min-width="140">
-                <template #default="{ row }">{{ row.matched_terms.join('、') }}</template>
+                <template #default="{ row }">
+                  {{ row.matched_terms.length ? row.matched_terms.join('、') : '（向量命中）' }}
+                </template>
               </el-table-column>
             </el-table>
           </el-collapse-item>
