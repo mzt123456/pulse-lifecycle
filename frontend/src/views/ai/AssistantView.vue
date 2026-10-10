@@ -390,7 +390,6 @@ async function submit(): Promise<void> {
 
         <div class="assistant-meta">
           <el-tag v-if="entry.ask.skill" size="small">技能 {{ entry.ask.skill }}</el-tag>
-          <el-tag size="small" type="info">编排 {{ entry.ask.orchestrator }}</el-tag>
           <span>耗时 {{ entry.ask.elapsed_ms }} ms</span>
           <span v-if="entry.ask.model">模型 {{ entry.ask.model }}</span>
           <span v-if="entry.ask.history_turns">带入 {{ entry.ask.history_turns }} 轮历史</span>

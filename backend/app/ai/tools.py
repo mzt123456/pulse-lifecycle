@@ -60,18 +60,6 @@ class ToolSpec:
     parameters: dict[str, Any]
     handler: Callable[[ToolContext, dict[str, Any]], dict[str, Any]]
 
-    @property
-    def schema(self) -> dict[str, Any]:
-        """OpenAI function calling 的工具描述。"""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
-
 
 # ----------------------------------------------------------------- 参数收敛
 # 参数类型已由 Pydantic 校验过，这里处理的是"业务口径"：长度上限、条数上限、模糊布尔值

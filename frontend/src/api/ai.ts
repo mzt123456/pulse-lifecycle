@@ -93,8 +93,6 @@ export interface AskResult {
     history: number
   }
   history_turns: number
-  /** 本次实际使用的编排实现：langgraph 或 loop */
-  orchestrator: string
 }
 
 export interface AskTurn {

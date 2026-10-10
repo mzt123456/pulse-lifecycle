@@ -168,7 +168,7 @@ BM25 只看字面，救不了"软件著作权"与"地面软件"这种撞词。�
 | --- | --- | --- |
 | 关键词 | `EMBEDDING_PROVIDER=none` | 默认，零依赖，BM25 + 行业词典 + 同义扩展 |
 | 向量（API） | `EMBEDDING_PROVIDER=api` + `EMBEDDING_API_KEY` | OpenAI 兼容的 `/embeddings`；默认用通义 `qwen3.7-text-embedding`（256~2560 维可自定义），同源 `text-embedding-v4` 与智谱 `embedding-3` 也兼容 |
-| 向量（本地） | `EMBEDDING_PROVIDER=local` + `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5` | 需 `pip install sentence-transformers`（含 torch）；**语料不出内网**，上生产时用这条 |
+| 向量（本地） | `EMBEDDING_PROVIDER=local` | 未内置实现：需要"语料不出内网"时接 `langchain-huggingface` 的 `HuggingFaceEmbeddings`，实现同一个 `Embedder` 协议即可 |
 
 开着向量时是**混合检索**：两路各取若干候选，归一化后加权融合（`AI_VECTOR_WEIGHT` 可调，
 默认各占一半），融合分数就是页面上显示的"匹配度"。几个工程细节：
@@ -207,7 +207,7 @@ BM25 只看字面，救不了"软件著作权"与"地面软件"这种撞词。�
 
 ### Agent 工具与技能
 
-`/ai/ask` 走手写的工具调用循环（最多 5 步）：模型决定调哪个工具、结果回灌、信息够了再作答。
+`/ai/ask` 走 LangGraph 状态图编排（最多 5 步）：模型决定调哪个工具、结果回灌、信息够了再作答。
 工具全部复用现有 service，**用户没有权限的工具根本不会出现在模型可见的清单里**，每次调用都写审计日志
 （`object_type=ai_tool`）。
 
@@ -391,12 +391,11 @@ START → prepare（选技能、拼提示词、设预算）
 边界说清楚：**框架管"图怎么跑"和"工具怎么定义"，我们管"工具能不能调、调完记什么"。**
 工具定义在 [app/ai/tool_defs.py](backend/app/ai/tool_defs.py)（`@tool` + docstring 生成 schema），
 执行与权限、审计在 [app/ai/tools.py](backend/app/ai/tools.py)（`run_tool`），
-两者用 `to_spec()` 桥接，所以同一份定义同时供图编排、手写循环与 MCP 出口使用。
+两者用 `to_spec()` 桥接，所以同一份定义同时供图编排与 MCP 出口使用。
 
-`AI_ORCHESTRATOR=loop` 可以切回原来的手写循环——保留它有两个用处：**对照**（面试可以讲两种实现的
-代码量、可观测性与扩展成本）和**兜底**（图编排自身异常时自动回退，并在返回体的 `orchestrator`
-字段里标明）。两套实现共用 `tools.py`，所以对外行为一致，28 项编排用例同时覆盖两条路径，
-其中一条直接断言两者输出相同。
+只有一套编排实现：原来的手写循环已经删掉——它和状态图做的是同一件事，
+留着只会让"到底跑的是哪条路径"变成一个需要解释的问题。图执行本身出意外时，
+入口 `agent.answer()` 会返回降级说明（而不是抛 500），但不再回退到另一套实现。
 
 ## 配置与密钥
 
@@ -413,3 +412,4 @@ START → prepare（选技能、拼提示词、设预算）
 处于阶段 0 准备与基线。方案文档、开发环境与代码仓库已经就绪；首批上线范围确认表待现场岗位与
 甲方签字；单机版数据文件暂时拿不到，字段映射表与数据体检相应推迟。
 进度以 `docs/` 里的阶段进度看板为准。
+

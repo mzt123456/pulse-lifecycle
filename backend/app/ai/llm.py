@@ -13,13 +13,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Protocol
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 
@@ -39,13 +38,6 @@ class TokenUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-
-    def merge(self, other: "TokenUsage") -> "TokenUsage":
-        return TokenUsage(
-            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
-            completion_tokens=self.completion_tokens + other.completion_tokens,
-            total_tokens=self.total_tokens + other.total_tokens,
-        )
 
     @classmethod
     def from_metadata(cls, metadata: dict[str, Any] | None) -> "TokenUsage":
@@ -100,28 +92,19 @@ class ToolCallingClient(Protocol):
         ...
 
 
-def extract_json(content: str) -> dict[str, Any]:
-    """从模型输出里取出 JSON 对象。
+_JSON_PARSER = JsonOutputParser()
 
-    即使提示词要求「只输出 JSON」，模型仍可能套上 ```json 代码块或加一句
-    说明文字，这里做一次容错解析，解析不了才判定失败。
+
+def parse_json(content: str) -> dict[str, Any]:
+    """把模型返回的文本解析成 JSON 对象（用框架的 JsonOutputParser）。
+
+    解析走 JSON 模式（`response_format=json_object`）时模型只返回 JSON，所以不需要
+    "从散文里抠 JSON"那层容错；解析失败说明返回体不合约定，直接抛 LLMError 由业务层降级。
     """
-    text = (content or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text).strip()
-
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end <= start:
-            raise LLMError("模型返回的内容不是 JSON 对象") from None
-        try:
-            data = json.loads(text[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise LLMError(f"模型返回的 JSON 无法解析：{exc}") from exc
-
+        data = _JSON_PARSER.parse(content or "")
+    except Exception as exc:  # 框架的解析异常类型较杂，统一收敛成 LLMError
+        raise LLMError("模型返回的内容不是 JSON 对象") from exc
     if not isinstance(data, dict):
         raise LLMError("模型返回的 JSON 不是对象")
     return data
@@ -177,7 +160,7 @@ class LangChainChatClient:
             raise LLMError("大模型返回结构不符合预期")
         self._record(response)
         content = response.content if isinstance(response.content, str) else str(response.content)
-        return extract_json(content)
+        return parse_json(content)
 
     def complete_with_tools(
         self,

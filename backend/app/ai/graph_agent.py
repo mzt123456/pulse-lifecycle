@@ -16,8 +16,8 @@ START → prepare（选技能、拼提示词、设预算）
 预算、无候选、模型失败这些分支各是一条边，加一条策略就是加一个节点，不用去改循环内部的判定顺序；
 每个节点的输入输出都是 state 的一个字段，排查时可以逐个节点看状态怎么变。
 
-工具、权限、审计、降级这些行为与手写循环完全一致——两套实现共用 `tools.py`，
-所以换编排方式不会改变对外行为，`orchestrator` 字段会记录本次实际用的是哪一套。
+    工具、权限、审计、降级这些行为都在自己手里：工具用 @tool 定义但执行走 `tools.run_tool`，
+    所以框架只负责图怎么跑，业务约束一条都没交出去。
 """
 
 from __future__ import annotations
@@ -298,13 +298,31 @@ def run(
     max_steps: int = 5,
     history: Any = None,
 ) -> dict[str, Any]:
-    """跑一遍状态图，返回与手写循环一致的响应结构。"""
+    """跑一遍状态图，返回接口层需要的响应结构。"""
     started = time.perf_counter()
     turns = _normalize_history(history)
 
     available = tools.tools_for(permissions)
     if "fault.view" in permissions:
         available.append(build_diagnose_tool(llm))
+    if not available:
+        return {
+            "answer": None,
+            "skill": None,
+            "steps": [],
+            "used_tools": [],
+            "degraded": False,
+            "reason": "当前账号没有可用的数据查询权限",
+            "model": getattr(llm, "model", None),
+            "elapsed_ms": 0,
+            "history_turns": len(turns),
+            "context_chars": {
+                "system_prompt": 0,
+                "skill_index": 0,
+                "all_skills_full": 0,
+                "history": 0,
+            },
+        }
     registry = {item.name: item for item in available}
     tool_context = tools.ToolContext(
         db=db, user=user, permissions=permissions, client_ip=client_ip
@@ -340,5 +358,4 @@ def run(
         "history_turns": len(turns),
         "context_chars": final.get("context_chars")
         or {"system_prompt": 0, "skill_index": 0, "all_skills_full": 0, "history": 0},
-        "orchestrator": "langgraph",
     }

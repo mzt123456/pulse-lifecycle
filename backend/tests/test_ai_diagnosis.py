@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.ai import diagnosis
 from app.ai.document import CaseDocument
 from app.ai.index_store import IndexBundle
-from app.ai.llm import LLMError, extract_json
+from app.ai.llm import LLMError, parse_json
 from app.ai.retriever import BM25Index, search_with_fallback
 from app.api.v1.ai import get_chat_client
 
@@ -57,14 +57,14 @@ def _doc(doc_id: str, text: str, **payload: object) -> CaseDocument:
 # ---------------------------------------------------------------- 解析与检索
 
 
-def test_extract_json_tolerates_code_fence_and_extra_text() -> None:
-    assert extract_json('```json\n{"confidence":"高"}\n```') == {"confidence": "高"}
-    assert extract_json('好的，结果如下：\n{"causes":[]}\n以上。') == {"causes": []}
+def test_parse_json_tolerates_code_fence() -> None:
+    assert parse_json('```json\n{"confidence":"高"}\n```') == {"confidence": "高"}
+    assert parse_json('{"causes": []}') == {"causes": []}
 
 
-def test_extract_json_rejects_unparsable_output() -> None:
+def test_parse_json_rejects_unparsable_output() -> None:
     with pytest.raises(LLMError):
-        extract_json("抱歉，我无法回答这个问题。")
+        parse_json("抱歉，我无法回答这个问题。")
 
 
 def test_search_falls_back_to_full_corpus_when_filter_too_narrow() -> None:
