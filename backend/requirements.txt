@@ -15,6 +15,9 @@ tzdata
 openpyxl==3.1.5
 # 文件上传（FastAPI 的 multipart 表单解析）
 python-multipart==0.0.20
+# 知识库文档解析：docx 提取段落与表格、pdf 提取文字层
+python-docx==1.2.0
+pdfplumber==0.11.10
 # 智能运维助手：中文分词（检索基线）与向量运算
 jieba==0.42.1
 numpy==2.5.3

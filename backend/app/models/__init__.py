@@ -3,6 +3,7 @@
 from app.models.consumable import Consumable, ConsumableUsage
 from app.models.equipment import Component, Equipment, EquipmentStatusLog
 from app.models.fault import FaultRecord
+from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
 from app.models.maintenance import MaintenanceOrder, MaintenanceStep
 from app.models.operation import MeasurementRecord, WellOperation
 from app.models.system import Attachment, AuditLog, BackupRecord, DictItem, License
@@ -27,6 +28,8 @@ __all__ = [
     "Equipment",
     "EquipmentStatusLog",
     "FaultRecord",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
     "License",
     "MaintenanceOrder",
     "MaintenanceStep",

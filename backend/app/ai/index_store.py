@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -23,6 +25,9 @@ from app.ai.embedding import Embedder, EmbeddingError
 from app.ai.retriever import BM25Index
 from app.ai.vector_index import VectorIndex
 from app.models.fault import FaultRecord
+from app.models.knowledge import KnowledgeChunk, KnowledgeDocument
+
+logger = logging.getLogger(__name__)
 
 # 向量化失败后的冷却时间：避免每个请求都去等一次超时
 EMBEDDING_RETRY_SECONDS = 60
@@ -40,11 +45,19 @@ class IndexBundle:
 
 _CACHE: dict[tuple[Any, ...], IndexBundle] = {}
 _EMBEDDING_FAILED_AT: dict[tuple[Any, ...], float] = {}
+# 增量向量化缓存：向量模型名 → {doc_id: 正文指纹}
+_TEXT_HASHES: dict[str, dict[str, str]] = {}
+# 向量模型名 → {doc_id: 向量}，只对正文未变的文档复用
+_VECTOR_CACHE: dict[str, dict[str, list[float]]] = {}
 _LOCK = threading.Lock()
 
 
+def _text_hash(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
 def corpus_fingerprint(db: Session) -> tuple[Any, ...]:
-    """故障记录表的轻量指纹，用于判断语料是否需要重建。"""
+    """故障记录 + 知识库的轻量指纹，用于判断语料是否需要重建。"""
     count, max_id, max_updated = db.execute(
         select(
             func.count(FaultRecord.id),
@@ -52,7 +65,25 @@ def corpus_fingerprint(db: Session) -> tuple[Any, ...]:
             func.max(FaultRecord.updated_at),
         )
     ).one()
-    return (count or 0, max_id or 0, max_updated or "")
+    knowledge_count, knowledge_max_updated, chunk_count, chunk_max_id = db.execute(
+        select(
+            func.count(KnowledgeDocument.id),
+            func.max(KnowledgeDocument.updated_at),
+            func.count(KnowledgeChunk.id),
+            func.max(KnowledgeChunk.id),
+        )
+        .select_from(KnowledgeDocument)
+        .outerjoin(KnowledgeChunk, KnowledgeChunk.document_id == KnowledgeDocument.id)
+    ).one()
+    return (
+        count or 0,
+        max_id or 0,
+        max_updated or "",
+        knowledge_count or 0,
+        knowledge_max_updated or "",
+        chunk_count or 0,
+        chunk_max_id or 0,
+    )
 
 
 def get_indexes(
@@ -83,11 +114,41 @@ def get_indexes(
             )
         else:
             try:
-                vectors = embedder.embed([document.text for document in documents])
+                hashes = {document.doc_id: _text_hash(document.text) for document in documents}
+                cached_hashes = _TEXT_HASHES.get(embedder.name, {})
+                cached_vectors = _VECTOR_CACHE.get(embedder.name, {})
+
+                # 增量：正文没变的文档直接复用上次的向量，只对新文档/改过的文档调接口
+                pending = [
+                    document
+                    for document in documents
+                    if cached_hashes.get(document.doc_id) != hashes[document.doc_id]
+                    or document.doc_id not in cached_vectors
+                ]
+                vector_by_id = {
+                    document.doc_id: cached_vectors[document.doc_id]
+                    for document in documents
+                    if document.doc_id in cached_vectors
+                    and cached_hashes.get(document.doc_id) == hashes[document.doc_id]
+                }
+                if pending:
+                    fresh = embedder.embed([document.text for document in pending])
+                    for document, vector in zip(pending, fresh, strict=True):
+                        vector_by_id[document.doc_id] = vector
+
+                vectors = [vector_by_id[document.doc_id] for document in documents]
                 bundle = IndexBundle(
                     bm25=bm25, vector=VectorIndex(documents, vectors), embedder_name=embedder.name
                 )
+                _TEXT_HASHES[embedder.name] = hashes
+                _VECTOR_CACHE[embedder.name] = vector_by_id
                 _EMBEDDING_FAILED_AT.pop(failure_key, None)
+                logger.info(
+                    "语料索引重建：共 %s 条，其中新向量化 %s 条（复用 %s 条）",
+                    len(documents),
+                    len(pending),
+                    len(documents) - len(pending),
+                )
             except EmbeddingError as exc:
                 # 向量化失败不影响可用性：退回纯 BM25，并把原因带出去
                 _EMBEDDING_FAILED_AT[failure_key] = time.time()
@@ -112,3 +173,5 @@ def clear_corpus_cache() -> None:
     with _LOCK:
         _CACHE.clear()
         _EMBEDDING_FAILED_AT.clear()
+        _TEXT_HASHES.clear()
+        _VECTOR_CACHE.clear()

@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     attachment_dir: str = "data/attachments"
     upload_max_size_mb: int = 50
 
+    # 知识库：原件落盘目录与可解析的扩展名（解析能力见 services/knowledge.py）
+    knowledge_dir: str = "data/knowledge"
+    knowledge_upload_extensions: Annotated[list[str], NoDecode] = [".txt", ".md", ".docx", ".pdf"]
+
     # 维保提醒阈值（编写报告 8.1）
     maint_interval_hours: int = 500
     maint_interval_days: int = 90
@@ -143,7 +147,13 @@ class Settings(BaseSettings):
     def attachment_path(self) -> Path:
         return (BACKEND_DIR / self.attachment_dir).resolve()
 
-    @field_validator("cors_origins", "allowed_upload_extensions", mode="before")
+    @property
+    def knowledge_path(self) -> Path:
+        return (BACKEND_DIR / self.knowledge_dir).resolve()
+
+    @field_validator(
+        "cors_origins", "allowed_upload_extensions", "knowledge_upload_extensions", mode="before"
+    )
     @classmethod
     def split_origins(cls, value: object) -> object:
         """允许写成逗号分隔的字符串，留空表示不启用跨域白名单。"""

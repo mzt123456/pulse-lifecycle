@@ -42,6 +42,9 @@ PERMISSIONS: list[tuple[str, str, str, str]] = [
     ("system.audit", "system", "audit", "查看审计日志"),
     ("system.backup", "system", "backup", "数据备份"),
     ("user.manage", "user", "manage", "用户与权限管理"),
+    ("knowledge.view", "knowledge", "view", "查看知识库"),
+    ("knowledge.upload", "knowledge", "upload", "新增知识库文档"),
+    ("knowledge.delete", "knowledge", "delete", "删除知识库文档"),
 ]
 
 # 内置角色与默认权限范围，取值来自编写报告 3.2 的对应关系表；None 表示全部权限
@@ -65,6 +68,8 @@ ROLE_PERMISSIONS: dict[str, list[str] | None] = {
         "report.export",
         "attachments.upload",
         "attachments.download",
+        "knowledge.view",
+        "knowledge.upload",
     ],
     "现场技术员": [
         "equipment.view",
@@ -77,6 +82,7 @@ ROLE_PERMISSIONS: dict[str, list[str] | None] = {
         "report.view",
         "attachments.upload",
         "attachments.download",
+        "knowledge.view",
     ],
     "只读用户": [
         "equipment.view",
@@ -85,6 +91,7 @@ ROLE_PERMISSIONS: dict[str, list[str] | None] = {
         "fault.view",
         "report.view",
         "attachments.download",
+        "knowledge.view",
     ],
 }
 

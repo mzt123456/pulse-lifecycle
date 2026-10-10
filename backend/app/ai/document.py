@@ -9,10 +9,12 @@ from typing import Any
 
 SOURCE_FAULT_RECORD = "fault_record"
 SOURCE_SYNTHETIC = "synthetic"
+SOURCE_KNOWLEDGE = "knowledge"
 
 SOURCE_LABELS: dict[str, str] = {
     SOURCE_FAULT_RECORD: "历史故障记录",
     SOURCE_SYNTHETIC: "仿真案例",
+    SOURCE_KNOWLEDGE: "知识库文档",
 }
 
 

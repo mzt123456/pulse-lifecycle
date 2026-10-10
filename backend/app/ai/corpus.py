@@ -13,9 +13,16 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.document import SOURCE_FAULT_RECORD, SOURCE_LABELS, CaseDocument, render_fault_text
+from app.ai.document import (
+    SOURCE_FAULT_RECORD,
+    SOURCE_KNOWLEDGE,
+    SOURCE_LABELS,
+    CaseDocument,
+    render_fault_text,
+)
 from app.ai.synthetic_cases import build_synthetic_case_documents
 from app.models.fault import FaultRecord
+from app.models.knowledge import STATUS_READY, KnowledgeChunk, KnowledgeDocument
 
 
 def build_fault_case_documents(db: Session, *, limit: int | None = None) -> list[CaseDocument]:
@@ -67,9 +74,48 @@ def build_fault_case_documents(db: Session, *, limit: int | None = None) -> list
     return documents
 
 
+def build_knowledge_documents(db: Session, *, limit: int | None = None) -> list[CaseDocument]:
+    """从知识库分块构造语料。
+
+    检索的最小单位是**分块**而不是整篇文档：一篇规范动辄上千字，整篇进索引会让
+    BM25 的长度归一化失真、向量也会被稀释。命中后靠 payload 里的 document_id 回指原文。
+    """
+    stmt = (
+        select(KnowledgeChunk, KnowledgeDocument)
+        .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
+        .where(
+            KnowledgeDocument.is_deleted.is_(False),
+            KnowledgeDocument.status == STATUS_READY,
+        )
+        .order_by(KnowledgeChunk.document_id, KnowledgeChunk.seq)
+    )
+    if limit is not None:
+        stmt = stmt.limit(limit)
+
+    documents: list[CaseDocument] = []
+    for chunk, document in db.execute(stmt).all():
+        documents.append(
+            CaseDocument(
+                source=SOURCE_KNOWLEDGE,
+                doc_id=f"knowledge:{document.id}:{chunk.seq}",
+                title=f"{document.title}｜第 {chunk.seq} 段",
+                text=chunk.text,
+                payload={
+                    "document_id": document.id,
+                    "chunk_seq": chunk.seq,
+                    "title": document.title,
+                    "file_name": document.file_name,
+                    "source_type": document.source_type,
+                },
+            )
+        )
+    return documents
+
+
 def build_corpus(db: Session, *, include_synthetic: bool = True) -> list[CaseDocument]:
-    """汇总语料：真实故障记录在前，仿真案例在后。"""
+    """汇总语料：故障记录与知识库文档在前，仿真案例在后。"""
     documents = build_fault_case_documents(db)
+    documents.extend(build_knowledge_documents(db))
     if include_synthetic:
         documents.extend(build_synthetic_case_documents())
     return documents

@@ -19,6 +19,8 @@ EXPECTED_TABLES = {
     "equipment",
     "equipment_status_log",
     "fault_records",
+    "knowledge_chunks",
+    "knowledge_documents",
     "licenses",
     "maintenance_orders",
     "maintenance_steps",

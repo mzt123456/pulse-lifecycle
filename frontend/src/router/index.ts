@@ -77,6 +77,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/ai/AssistantView.vue'),
         meta: { title: '智能助手' },
       },
+      {
+        path: 'knowledge',
+        name: 'knowledge',
+        component: () => import('@/views/knowledge/KnowledgeList.vue'),
+        meta: { title: '知识库' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } },

@@ -11,6 +11,7 @@ from app.api.v1 import (
     equipment,
     faults,
     health,
+    knowledge,
     maintenance,
     preferences,
     reports,
@@ -32,3 +33,4 @@ api_router.include_router(system.router)
 api_router.include_router(reports.router)
 api_router.include_router(preferences.router)
 api_router.include_router(ai.router)
+api_router.include_router(knowledge.router)
