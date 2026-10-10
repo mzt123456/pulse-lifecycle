@@ -24,3 +24,5 @@ httpx==0.28.1
 mcp==2.3.0
 # Agent 编排：显式状态图（节点 / 条件边 / 状态收敛）
 langgraph==1.2.14
+# 模型调用：ChatOpenAI（协议、重试、bind_tools、用量解析）
+langchain-openai==1.7.0

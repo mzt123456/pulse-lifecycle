@@ -115,7 +115,9 @@ graph LR
 两条抗幻觉约束就落在图的两处分支上：**检索或重排为空时不调用模型**，直接回答未找到；
 **模型给出的引用必须能在本次检索结果里对上**，对不上的丢弃，一条不剩时置信度强制降为「低」。
 
-生成层走 OpenAI 兼容协议，默认 DeepSeek，Key 放在 `backend/.env`（不入库）。
+生成层用 **langchain-openai 的 `ChatOpenAI`** 调用（协议仍是 OpenAI 兼容，默认 DeepSeek），
+Key 放在 `backend/.env`（不入库）；换模型只改 `base_url` 与模型名，
+DeepSeek 生成 + 通义向量现在就是这样并存。
 **没有 Key 或模型超时、报错时接口自动降级为只返回相似案例列表**，不影响页面可用。
 
 检索质量可以用 40 条口语描述评测（在 `backend/` 下执行）：
@@ -378,6 +380,7 @@ START → prepare（选技能、拼提示词、设预算）
 | `add_messages` 消息 reducer | 用 | 节点只返回新增消息，追加交给框架；自己拼列表容易出错 |
 | `trim_messages` 历史裁剪 | 用 | 按预算保留最近若干轮，system 常驻、从 user 开始，不裁出非法序列 |
 | `@tool` 工具定义 + schema 自动生成 | 用 | 参数说明来自 docstring，运行上下文用 `InjectedToolArg` 注入且不出现在模型可见参数里 |
+| `ChatOpenAI` 模型调用（langchain-openai） | 用 | 协议、重试、超时、`bind_tools`、用量解析交给框架；换模型只改 base_url 与模型名 |
 | 状态按字段增量合并 | 用 | 每次节点只返回自己改的字段 |
 | 运行上下文（`context_schema`） | 用 | 会话、调用者、模型、工具清单属于"运行环境"，不塞进状态 |
 | 检查点持久化 / 断点续跑 | **未用** | 一问一答、单进程，没有跨请求恢复的需求 |

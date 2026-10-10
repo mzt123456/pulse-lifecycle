@@ -28,7 +28,8 @@ from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.messages.utils import convert_to_openai_messages, trim_messages
+from langchain_core.tools import BaseTool
+from langchain_core.messages.utils import trim_messages
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.runtime import Runtime
@@ -86,7 +87,8 @@ class AskContext:
     llm: ToolCallingClient
     client_ip: str | None
     registry: dict[str, tools.ToolSpec]
-    schemas: list[dict[str, Any]]
+    # 交给模型的工具对象（LangChain 工具，schema 由 ToolSpec 转换而来）
+    tools: list[BaseTool]
     max_steps: int
 
 
@@ -150,7 +152,7 @@ def _plan(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
     try:
         # 客户端收发的是 OpenAI 协议的字典，消息对象在这里转一次，图内部始终用消息对象
         turn = llm.complete_with_tools(
-            messages=convert_to_openai_messages(messages), tools=runtime.context.schemas
+            messages=messages, tools=runtime.context.tools
         )
     except LLMError as exc:
         logger.warning("数据问答失败：%s", exc)
@@ -304,6 +306,9 @@ def run(
     if "fault.view" in permissions:
         available.append(build_diagnose_tool(llm))
     registry = {item.name: item for item in available}
+    tool_context = tools.ToolContext(
+        db=db, user=user, permissions=permissions, client_ip=client_ip
+    )
 
     context = AskContext(
         db=db,
@@ -312,7 +317,7 @@ def run(
         llm=llm,
         client_ip=client_ip,
         registry=registry,
-        schemas=[item.schema for item in available],
+        tools=tools.as_langchain_tools(available, tool_context),
         max_steps=max_steps,
     )
 

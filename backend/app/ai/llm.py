@@ -1,10 +1,14 @@
-"""大模型接入层：OpenAI 兼容协议、超时重试与降级。
+"""大模型接入：用 langchain-openai 的 ChatOpenAI 做调用，外面套一层薄适配。
 
-只用 httpx，不引入各家 SDK：DeepSeek、通义、智谱以及本地 Ollama 都提供
-OpenAI 兼容的 `/chat/completions`，换模型只改 base_url 与模型名。
+**框架负责协议与健壮性**：HTTP 细节、重试（ChatOpenAI 自带 max_retries）、超时、
+工具绑定（bind_tools）、消息对象与 API 负载的互转、把响应解析成 AIMessage（含 tool_calls）。
 
-失败一律抛 LLMError，由业务层决定降级方式——检索链路本身不依赖模型，
-模型不可用时接口仍能返回相似案例，这也是生产系统该有的行为。
+**这一层保留什么**：调用方只依赖两个方法（`complete_json` / `complete_with_tools`）与
+`last_usage`，所以换模型、换厂商、乃至换回裸 HTTP 都只改这一个文件；
+降级语义（一切失败都抛 LLMError，由业务层决定退化成"只返回相似案例"）与用量口径
+（token 直接进返回体）也留在这里。
+
+换模型只改 base_url 与模型名：DeepSeek 生成 + 通义向量现在就是这样并存。
 """
 
 from __future__ import annotations
@@ -12,11 +16,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
-import httpx
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.tools import BaseTool
+from langchain_openai import ChatOpenAI
 
 from app.core.config import Settings
 
@@ -24,33 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMError(Exception):
-    """大模型调用失败：网络异常、超时、返回体不合法或不是 JSON。"""
-
-
-class ChatClient(Protocol):
-    """生成层依赖的最小接口，便于测试替换与后续接入本地模型。"""
-
-    model: str
-
-    def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
-        """要求模型返回 JSON 对象；不满足约定时抛 LLMError。"""
-
-
-@dataclass(frozen=True)
-class ToolCall:
-    """模型要求调用的一次工具。"""
-
-    id: str
-    name: str
-    arguments: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class ChatTurn:
-    """一轮模型输出：要么是最终回答，要么是要调用的工具（可能多个）。"""
-
-    content: str | None
-    tool_calls: tuple[ToolCall, ...] = ()
+    """大模型调用失败：网络异常、超时、鉴权失败或返回体不合法。"""
 
 
 @dataclass(frozen=True)
@@ -69,62 +48,56 @@ class TokenUsage:
         )
 
     @classmethod
-    def from_payload(cls, usage: Any) -> "TokenUsage":
-        if not isinstance(usage, dict):
+    def from_metadata(cls, metadata: dict[str, Any] | None) -> "TokenUsage":
+        """从 LangChain 的 usage_metadata 取值。"""
+        if not metadata:
             return cls()
         return cls(
-            prompt_tokens=int(usage.get("prompt_tokens") or 0),
-            completion_tokens=int(usage.get("completion_tokens") or 0),
-            total_tokens=int(usage.get("total_tokens") or 0),
+            prompt_tokens=int(metadata.get("input_tokens") or 0),
+            completion_tokens=int(metadata.get("output_tokens") or 0),
+            total_tokens=int(metadata.get("total_tokens") or 0),
         )
 
 
+@dataclass(frozen=True)
+class ToolCall:
+    """模型要求调用的一次工具（参数已由框架解析成字典）。"""
+
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ChatTurn:
+    """一轮模型输出：要么是最终回答，要么是要调用的工具（可能多个）。"""
+
+    content: str | None
+    tool_calls: tuple[ToolCall, ...] = ()
+
+
+class ChatClient(Protocol):
+    """生成层依赖的最小接口，便于测试替换与后续接入本地模型。"""
+
+    model: str
+    last_usage: TokenUsage
+
+    def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        """要求模型返回 JSON 对象；不满足约定时抛 LLMError。"""
+
+
 class ToolCallingClient(Protocol):
-    """Agent 循环依赖的接口：走各家兼容的 function calling。"""
+    """Agent 循环依赖的接口：走各家的 function calling。"""
 
     model: str
 
     def complete_with_tools(
         self,
         *,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
+        messages: list[Any],
+        tools: list[BaseTool],
     ) -> ChatTurn:
         ...
-
-
-def _parse_arguments(raw: Any) -> dict[str, Any]:
-    """function calling 的 arguments 是 JSON 字符串，解析失败时按空参数处理。"""
-    if isinstance(raw, dict):
-        return raw
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        logger.warning("工具参数不是合法 JSON，按空参数处理：%s", str(raw)[:120])
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-def parse_turn(message: dict[str, Any]) -> ChatTurn:
-    """把模型返回的 message 解析成一轮输出。"""
-    calls: list[ToolCall] = []
-    for index, item in enumerate(message.get("tool_calls") or []):
-        function = item.get("function") or {}
-        name = function.get("name")
-        if not name:
-            continue
-        calls.append(
-            ToolCall(
-                id=str(item.get("id") or f"call_{index}"),
-                name=str(name),
-                arguments=_parse_arguments(function.get("arguments")),
-            )
-        )
-    content = message.get("content")
-    return ChatTurn(content=content.strip() if isinstance(content, str) and content.strip() else None,
-                    tool_calls=tuple(calls))
 
 
 def extract_json(content: str) -> dict[str, Any]:
@@ -154,11 +127,8 @@ def extract_json(content: str) -> dict[str, Any]:
     return data
 
 
-class OpenAICompatibleClient:
-    """OpenAI 兼容的对话客户端。"""
-
-    # 这类状态码属于暂时性故障，重试有意义；4xx 参数错误重试也没用。
-    RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+class LangChainChatClient:
+    """基于 ChatOpenAI 的客户端，对外接口与之前保持一致。"""
 
     def __init__(
         self,
@@ -168,115 +138,90 @@ class OpenAICompatibleClient:
         model: str,
         timeout: float = 30.0,
         max_retries: int = 2,
-        client: httpx.Client | None = None,
-    ) -> None:
-        self.api_key = api_key
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.timeout = timeout
-        self.max_retries = max(0, max_retries)
-        self._client = client
-        # 最近一次调用的用量；评测脚本与成本观察直接读它
-        self.last_usage = TokenUsage()
-
-    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        last_error: Exception | None = None
-
-        for attempt in range(self.max_retries + 1):
-            if attempt:
-                # 退避 0.5s、1s……最多 4s；模型服务偶发抖动时不必立刻降级
-                time.sleep(min(0.5 * 2 ** (attempt - 1), 4.0))
-            try:
-                if self._client is not None:
-                    response = self._client.post(url, json=payload, headers=headers, timeout=self.timeout)
-                else:
-                    with httpx.Client(timeout=self.timeout) as client:
-                        response = client.post(url, json=payload, headers=headers)
-            except httpx.HTTPError as exc:
-                last_error = exc
-                logger.warning("大模型请求失败（第 %s 次）：%s", attempt + 1, exc)
-                continue
-
-            if response.status_code in self.RETRY_STATUS:
-                last_error = LLMError(f"大模型服务返回 {response.status_code}")
-                logger.warning("大模型返回 %s，准备重试", response.status_code)
-                continue
-            if response.status_code >= 400:
-                # 不回显响应正文，避免把可能的敏感信息写进日志
-                raise LLMError(f"大模型调用失败：HTTP {response.status_code}")
-
-            try:
-                body = response.json()
-            except ValueError as exc:
-                raise LLMError("大模型返回的不是 JSON") from exc
-            self.last_usage = TokenUsage.from_payload(body.get("usage"))
-            return body
-
-        raise LLMError(f"大模型调用失败：{last_error or '未知错误'}")
-
-    def complete_json(
-        self,
-        *,
-        system: str,
-        user: str,
         temperature: float = 0.2,
-        max_tokens: int = 900,
-    ) -> dict[str, Any]:
-        data = self._post(
-            {
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-            }
+    ) -> None:
+        self.model = model
+        self.last_usage = TokenUsage()
+        # 重试与超时交给框架；换模型只改 model 与 base_url
+        self._model = ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            temperature=temperature,
         )
 
+    # ------------------------------------------------------------ 内部
+
+    def _record(self, message: AIMessage) -> None:
+        self.last_usage = TokenUsage.from_metadata(getattr(message, "usage_metadata", None))
+
+    @staticmethod
+    def _fail(action: str, exc: Exception) -> LLMError:
+        # 不拼接异常正文与密钥，避免把敏感信息带进日志
+        logger.warning("%s失败：%s", action, type(exc).__name__)
+        return LLMError(f"{action}失败：{type(exc).__name__}")
+
+    # ------------------------------------------------------------ 对外
+
+    def complete_json(self, *, system: str, user: str) -> dict[str, Any]:
+        """要求模型返回 JSON 对象（走 response_format=json_object）。"""
+        messages = [SystemMessage(system), HumanMessage(user)]
         try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("大模型返回结构不符合预期") from exc
+            response = self._model.bind(response_format={"type": "json_object"}).invoke(messages)
+        except Exception as exc:  # 网络/鉴权/限流等统一转成 LLMError，由业务层决定降级
+            raise self._fail("大模型调用", exc) from exc
+
+        if not isinstance(response, AIMessage):
+            raise LLMError("大模型返回结构不符合预期")
+        self._record(response)
+        content = response.content if isinstance(response.content, str) else str(response.content)
         return extract_json(content)
 
     def complete_with_tools(
         self,
         *,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-        temperature: float = 0.2,
-        max_tokens: int = 1200,
+        messages: list[Any],
+        tools: list[BaseTool],
     ) -> ChatTurn:
         """带工具的一轮对话：模型自己决定是继续调工具还是给出结论。"""
-        data = self._post(
-            {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "tools": tools,
-                "tool_choice": "auto",
-            }
-        )
         try:
-            message = data["choices"][0]["message"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError("大模型返回结构不符合预期") from exc
-        return parse_turn(message)
+            response = self._model.bind_tools(tools).invoke(messages)
+        except Exception as exc:
+            raise self._fail("大模型调用", exc) from exc
+
+        if not isinstance(response, AIMessage):
+            raise LLMError("大模型返回结构不符合预期")
+        self._record(response)
+
+        # 框架已经把 tool_calls 解析好（arguments 是字典），不用再自己解 JSON 字符串
+        calls = tuple(
+            ToolCall(
+                id=str(item.get("id") or f"call_{index}"),
+                name=str(item.get("name") or ""),
+                arguments=item.get("args") if isinstance(item.get("args"), dict) else {},
+            )
+            for index, item in enumerate(response.tool_calls or [])
+            if item.get("name")
+        )
+        content = response.content
+        text = content.strip() if isinstance(content, str) and content.strip() else None
+        return ChatTurn(content=text, tool_calls=calls)
+
+    def stream_text(self, *, system: str, user: str) -> Iterator[str]:
+        """流式输出（给前端逐字显示留的接口；SSE 与前端渲染还没接）。"""
+        for chunk in self._model.stream([SystemMessage(system), HumanMessage(user)]):
+            piece = getattr(chunk, "content", "")
+            if isinstance(piece, str) and piece:
+                yield piece
 
 
-def build_chat_client(settings: Settings) -> OpenAICompatibleClient | None:
+def build_chat_client(settings: Settings) -> LangChainChatClient | None:
     """按配置构造客户端；没有 API Key 时返回 None，由调用方降级。"""
     if not settings.llm_api_key:
         return None
-    return OpenAICompatibleClient(
+    return LangChainChatClient(
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
         model=settings.llm_model,

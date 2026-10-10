@@ -56,6 +56,20 @@ def _call(name: str, arguments: dict[str, Any] | None = None) -> ChatTurn:
     return ChatTurn(content=None, tool_calls=(ToolCall(id="c1", name=name, arguments=arguments or {}),))
 
 
+def _roles(messages: list[Any]) -> list[str]:
+    """把消息对象或字典统一成角色名（LangChain 用 human/ai，OpenAI 协议用 user/assistant）。"""
+    names: list[str] = []
+    for item in messages:
+        role = item.get("role") if isinstance(item, dict) else getattr(item, "type", "")
+        names.append({"human": "user", "ai": "assistant"}.get(role, role))
+    return names
+
+
+def _content(item: Any) -> str:
+    value = item.get("content") if isinstance(item, dict) else getattr(item, "content", "")
+    return value if isinstance(value, str) else str(value)
+
+
 @pytest.fixture
 def llm_override(api_client: TestClient):
     def install(client_impl: Any) -> Any:
@@ -172,8 +186,8 @@ def test_agent_runs_tool_then_answers(admin_ctx: tools.ToolContext) -> None:
 
     # 工具结果必须以 tool 角色回灌，模型才有依据说下一句
     second_round = llm.calls[1]["messages"]
-    assert second_round[-1]["role"] == "tool"
-    assert second_round[-1]["tool_call_id"] == "c1"
+    assert _roles(second_round)[-1] == "tool"
+    assert second_round[-1].tool_call_id == "c1"
 
 
 def test_agent_hides_tools_without_permission(admin_ctx: tools.ToolContext) -> None:
@@ -187,7 +201,7 @@ def test_agent_hides_tools_without_permission(admin_ctx: tools.ToolContext) -> N
         llm=llm,
     )
 
-    exposed = {item["function"]["name"] for item in llm.calls[0]["tools"]}
+    exposed = {item.name for item in llm.calls[0]["tools"]}
     # 基础字典是登录即可读的配置数据，其余无权限的业务工具都不该出现
     assert exposed == {"query_equipment", "query_dict_items"}, "无权限的工具不该出现在模型可见的工具清单里"
 
@@ -204,7 +218,7 @@ def test_agent_reports_tool_error_back_to_model(admin_ctx: tools.ToolContext) ->
         llm=llm,
     )
 
-    payload = json.loads(llm.calls[1]["messages"][-1]["content"])
+    payload = json.loads(_content(llm.calls[1]["messages"][-1]))
     assert payload["ok"] is False
     assert result["answer"] == "我没有耗材查看权限。"
 
@@ -295,8 +309,8 @@ def test_history_is_prepended_in_order(admin_ctx: tools.ToolContext) -> None:
         ],
     )
 
-    roles = [item["role"] for item in llm.calls[0]["messages"]]
-    contents = [item.get("content") for item in llm.calls[0]["messages"]]
+    roles = _roles(llm.calls[0]["messages"])
+    contents = [_content(item) for item in llm.calls[0]["messages"]]
 
     assert roles == ["system", "user", "assistant", "user", "assistant", "user"]
     assert contents[1] == "设备整体情况怎么样"
@@ -317,7 +331,7 @@ def test_history_entry_without_answer_only_sends_question(admin_ctx: tools.ToolC
         history=[{"question": "设备情况", "answer": None}],
     )
 
-    roles = [item["role"] for item in llm.calls[0]["messages"]]
+    roles = _roles(llm.calls[0]["messages"])
     assert roles == ["system", "user", "user"]
 
 
@@ -335,7 +349,7 @@ def test_history_is_capped(admin_ctx: tools.ToolContext) -> None:
 
     assert result["history_turns"] == agent.MAX_HISTORY_TURNS
     # 只带最近几轮：最早的那几条不该出现
-    contents = " ".join(str(item.get("content")) for item in llm.calls[0]["messages"])
+    contents = " ".join(_content(item) for item in llm.calls[0]["messages"])
     assert "第0个问题" not in contents
     assert "第11个问题" in contents
 
@@ -377,7 +391,7 @@ def test_multi_turn_prompt_warns_history_may_be_stale(admin_ctx: tools.ToolConte
         history=[{"question": "耗材情况", "answer": "还有 2 个。"}],
     )
 
-    system_prompt = llm.calls[0]["messages"][0]["content"]
+    system_prompt = _content(llm.calls[0]["messages"][0])
     assert "可能已经过时" in system_prompt
     assert "重新调用工具" in system_prompt
 
@@ -528,7 +542,7 @@ def test_ask_endpoint_accepts_history(
     data = response.json()["data"]
     assert data["history_turns"] == 1
     assert data["context_chars"]["history"] > 0
-    assert [item["role"] for item in llm.calls[0]["messages"]][:3] == [
+    assert _roles(llm.calls[0]["messages"])[:3] == [
         "system",
         "user",
         "assistant",

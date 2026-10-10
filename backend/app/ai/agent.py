@@ -342,7 +342,8 @@ def _answer_with_loop(
         return result
 
     ctx = tools.ToolContext(db=db, user=user, permissions=permissions, client_ip=client_ip)
-    schemas = [item.schema for item in available]
+    # 交给模型的工具对象：LangChain 工具（schema 由 ToolSpec 转换），执行仍走 run_tool
+    model_tools = tools.as_langchain_tools(available, ctx)
     # 本轮可用的工具表：含按需注入的诊断工具，run_tool 按它查找
     registry = {item.name: item for item in available}
     messages: list[dict[str, Any]] = [
@@ -357,7 +358,7 @@ def _answer_with_loop(
 
     for step in range(1, max_steps + 1):
         try:
-            turn = llm.complete_with_tools(messages=messages, tools=schemas)
+            turn = llm.complete_with_tools(messages=messages, tools=model_tools)
         except LLMError as exc:
             logger.warning("数据问答失败：%s", exc)
             result.update(

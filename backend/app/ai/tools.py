@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session
+from langchain_core.tools import StructuredTool
+from pydantic import create_model
 
 from app.core.audit import record_audit
 from app.core.errors import BusinessError
@@ -121,6 +123,74 @@ def default_registry() -> dict[str, ToolSpec]:
     from app.ai.tool_defs import TOOLS_BY_NAME
 
     return TOOLS_BY_NAME
+
+
+_TYPE_MAP = {
+    "string": str,
+    "integer": int,
+    "number": float,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def _python_type(schema: dict[str, Any]) -> Any:
+    """把 JSON Schema 的类型映射成 Python 类型（含 Optional 的 anyOf 写法）。"""
+    if isinstance(schema.get("type"), str) and schema["type"] in _TYPE_MAP:
+        return _TYPE_MAP[schema["type"]]
+    for option in schema.get("anyOf", []) or []:
+        if isinstance(option, dict) and option.get("type") in _TYPE_MAP:
+            return _TYPE_MAP[option["type"]]
+    return Any
+
+
+def _args_schema(spec: ToolSpec) -> Any:
+    """按 ToolSpec 的参数表建一个 Pydantic 模型，供 LangChain 工具使用。"""
+    properties = spec.parameters.get("properties", {}) or {}
+    required = set(spec.parameters.get("required", []) or [])
+
+    fields: dict[str, Any] = {}
+    for name, schema in properties.items():
+        annotation = _python_type(schema) if isinstance(schema, dict) else Any
+        if name in required:
+            fields[name] = (annotation, ...)
+        elif annotation is Any:
+            fields[name] = (Any, schema.get("default") if isinstance(schema, dict) else None)
+        else:
+            fields[name] = (
+                annotation | None,
+                schema.get("default") if isinstance(schema, dict) else None,
+            )
+    return create_model(f"{spec.name}_args", **fields)
+
+
+def as_langchain_tool(spec: ToolSpec, ctx: ToolContext | None = None) -> StructuredTool:
+    """把 ToolSpec 转成 LangChain 工具对象（供 bind_tools 使用）。
+
+    只是同一个工具的另一种表示：参数 schema 转成 Pydantic 模型，
+    **执行仍然走 `run_tool`**（权限校验与审计在里面）。带上 ctx 的工具也能被
+    框架的 ToolNode 直接执行；不带 ctx 时明确报错，避免绕过审计。
+    """
+    args_schema = _args_schema(spec)
+
+    def _run(**kwargs: Any) -> str:
+        if ctx is None:
+            raise RuntimeError(f"{spec.name} 需要通过 run_tool 执行（缺少运行上下文）")
+        return json.dumps(run_tool(ctx, spec.name, kwargs), ensure_ascii=False)
+
+    return StructuredTool.from_function(
+        func=_run,
+        name=spec.name,
+        description=spec.description,
+        args_schema=args_schema,
+    )
+
+
+def as_langchain_tools(
+    specs: Iterable[ToolSpec], ctx: ToolContext | None = None
+) -> list[StructuredTool]:
+    return [as_langchain_tool(spec, ctx) for spec in specs]
 
 
 def tools_for(
