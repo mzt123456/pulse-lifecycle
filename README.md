@@ -28,6 +28,32 @@
 
 需要 Python 3.10 以上、Node、Git 和 Docker Desktop（WSL2 后端）。
 
+### 一键启动（推荐）
+
+在任意目录打开 PowerShell 执行：
+
+```
+powershell -ExecutionPolicy Bypass -File C:\codex_project\update_for_single\dev\start-dev.ps1
+```
+
+脚本按顺序做三件事：拉起 MySQL 容器并等它健康 → 启动后端（8000）→ 启动前端（5173），
+最后打印访问地址与开发账号。默认每个服务各开一个可见窗口，日志直接看得到、Ctrl+C 即可停；
+加 `-Hidden` 则后台运行，日志写到 `dev\logs\`。
+
+常用参数：`-Restart`（端口被占用时先停掉占用者再启动）、`-SkipDocker`、`-SkipBackend`、
+`-SkipFrontend`、`-WithMcp`（额外启动 MCP 的 HTTP 传输，127.0.0.1:8001）。
+
+停止：
+
+```
+powershell -ExecutionPolicy Bypass -File C:\codex_project\update_for_single\dev\stop-dev.ps1            # 只停三个服务
+powershell -ExecutionPolicy Bypass -File C:\codex_project\update_for_single\dev\stop-dev.ps1 -WithDocker # 连数据库一起停
+```
+
+> **开发服务必须由你自己的终端拉起。** 挂在别的进程（编辑器、助手会话）上的服务，
+> 宿主被回收时会跟着消失，表现就是"用着用着突然打不开了"。脚本启动的进程独立于任何会话，
+> 这也是它存在的理由。
+
 开发数据库是容器里的 MySQL 8.0，映射到宿主机 3307：
 
 ```
