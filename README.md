@@ -375,11 +375,20 @@ START → prepare（选技能、拼提示词、设预算）
 | LangGraph 能力 | 本项目 | 原因 |
 | --- | --- | --- |
 | `StateGraph` / 条件边 / 环 | 用 | 编排的核心，循环与分支都在这里 |
+| `add_messages` 消息 reducer | 用 | 节点只返回新增消息，追加交给框架；自己拼列表容易出错 |
+| `trim_messages` 历史裁剪 | 用 | 按预算保留最近若干轮，system 常驻、从 user 开始，不裁出非法序列 |
+| `@tool` 工具定义 + schema 自动生成 | 用 | 参数说明来自 docstring，运行上下文用 `InjectedToolArg` 注入且不出现在模型可见参数里 |
 | 状态按字段增量合并 | 用 | 每次节点只返回自己改的字段 |
 | 运行上下文（`context_schema`） | 用 | 会话、调用者、模型、工具清单属于"运行环境"，不塞进状态 |
 | 检查点持久化 / 断点续跑 | **未用** | 一问一答、单进程，没有跨请求恢复的需求 |
 | 人工介入中断（interrupt） | **未用** | 目前没有"执行前需人工审批"的步骤（有的话会加在 `execute_tools` 前） |
 | 子图 / 多智能体交接 | **未用** | 单智能体够用，多一层反而难排查 |
+| `ToolNode` 执行工具 | **未用** | 执行前后要插权限校验与审计，所以执行留在 `tools.run_tool`；`@tool` 只负责定义 |
+
+边界说清楚：**框架管"图怎么跑"和"工具怎么定义"，我们管"工具能不能调、调完记什么"。**
+工具定义在 [app/ai/tool_defs.py](backend/app/ai/tool_defs.py)（`@tool` + docstring 生成 schema），
+执行与权限、审计在 [app/ai/tools.py](backend/app/ai/tools.py)（`run_tool`），
+两者用 `to_spec()` 桥接，所以同一份定义同时供图编排、手写循环与 MCP 出口使用。
 
 `AI_ORCHESTRATOR=loop` 可以切回原来的手写循环——保留它有两个用处：**对照**（面试可以讲两种实现的
 代码量、可观测性与扩展成本）和**兜底**（图编排自身异常时自动回退，并在返回体的 `orchestrator`

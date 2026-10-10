@@ -25,9 +25,12 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages.utils import convert_to_openai_messages, trim_messages
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.runtime import Runtime
 from sqlalchemy.orm import Session
 
@@ -35,7 +38,6 @@ from app.ai import tools
 from app.ai.agent import (
     BASE_SYSTEM_PROMPT,
     MULTI_TURN_PROMPT,
-    _assistant_message,
     _normalize_history,
     _skill_source,
     _step_summary,
@@ -48,13 +50,17 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# 消息裁剪的预算：用字符数近似 token（中文一字≈一 token 量级），够表达"别把历史无限带进去"
+MESSAGE_CHAR_BUDGET = 6000
+
 
 class AskState(TypedDict, total=False):
     """图的状态：每个节点只读写自己负责的字段。"""
 
     question: str
     history: list[tuple[str, str | None]]
-    messages: list[dict[str, Any]]
+    # add_messages：节点只返回"新增的消息"，由 reducer 负责追加，不用自己拼列表
+    messages: Annotated[list[AnyMessage], add_messages]
     skill: str | None
     context_chars: dict[str, int]
     pending: list[dict[str, Any]]
@@ -101,12 +107,23 @@ def _prepare(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
     if skill_context:
         prompt += f"\n\n{skill_context}"
 
-    messages: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
+    messages: list[AnyMessage] = [SystemMessage(prompt)]
     for past_question, past_answer in turns:
-        messages.append({"role": "user", "content": past_question})
+        messages.append(HumanMessage(past_question))
         if past_answer:
-            messages.append({"role": "assistant", "content": past_answer})
-    messages.append({"role": "user", "content": question})
+            messages.append(AIMessage(past_answer))
+    messages.append(HumanMessage(question))
+
+    # 历史裁剪交给框架：按字符预算保留最近若干轮，system 常驻、从 user 消息开始，
+    # 避免裁出以 assistant/tool 开头的非法序列
+    messages = trim_messages(
+        messages,
+        max_tokens=MESSAGE_CHAR_BUDGET,
+        token_counter=lambda items: sum(len(str(item.content or "")) for item in items),
+        strategy="last",
+        include_system=True,
+        start_on="human",
+    )
 
     return {
         "messages": messages,
@@ -131,7 +148,10 @@ def _plan(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
     llm = runtime.context.llm
     messages = list(state.get("messages") or [])
     try:
-        turn = llm.complete_with_tools(messages=messages, tools=runtime.context.schemas)
+        # 客户端收发的是 OpenAI 协议的字典，消息对象在这里转一次，图内部始终用消息对象
+        turn = llm.complete_with_tools(
+            messages=convert_to_openai_messages(messages), tools=runtime.context.schemas
+        )
     except LLMError as exc:
         logger.warning("数据问答失败：%s", exc)
         return {
@@ -148,9 +168,17 @@ def _plan(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
             "reason": None if turn.content else "模型没有给出回答",
         }
 
-    messages.append(_assistant_message(turn.content, turn.tool_calls))
     return {
-        "messages": messages,
+        # AIMessage 自带 tool_calls 结构，不用再手拼 assistant 消息字典
+        "messages": [
+            AIMessage(
+                content=turn.content or "",
+                tool_calls=[
+                    {"name": call.name, "args": call.arguments, "id": call.id}
+                    for call in turn.tool_calls
+                ],
+            )
+        ],
         "answer": None,
         "pending": [
             {"id": call.id, "name": call.name, "arguments": call.arguments}
@@ -167,11 +195,11 @@ def _execute_tools(state: AskState, runtime: Runtime[AskContext]) -> dict[str, A
         permissions=runtime.context.permissions,
         client_ip=runtime.context.client_ip,
     )
-    messages = list(state.get("messages") or [])
     steps = list(state.get("steps") or [])
     used = list(state.get("used_tools") or [])
     budget = state.get("budget_left", 0)
     pending = state.get("pending") or []
+    new_messages: list[AnyMessage] = []
 
     for call in pending:
         result = tools.run_tool(
@@ -189,17 +217,16 @@ def _execute_tools(state: AskState, runtime: Runtime[AskContext]) -> dict[str, A
         )
         if call["name"] not in used:
             used.append(call["name"])
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": call["id"],
-                "name": call["name"],
-                "content": _tool_message_content(result),
-            }
+        new_messages.append(
+            ToolMessage(
+                content=_tool_message_content(result),
+                tool_call_id=call["id"],
+                name=call["name"],
+            )
         )
 
     return {
-        "messages": messages,
+        "messages": new_messages,
         "steps": steps,
         "used_tools": used,
         "pending": [],

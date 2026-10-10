@@ -29,6 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai import agent, tools
+from app.ai.tool_defs import TOOLS_BY_NAME
 from app.ai.llm import build_chat_client
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -68,7 +69,7 @@ def _service_user(session: Session) -> User | None:
 def _registry() -> dict[str, tools.ToolSpec]:
     """工具注册表：业务查询工具 + 诊断工具。"""
     llm = build_chat_client(get_settings())
-    return {**tools.TOOLS_BY_NAME, "diagnose_fault": agent.build_diagnose_tool(llm)}
+    return {**TOOLS_BY_NAME, "diagnose_fault": agent.build_diagnose_tool(llm)}
 
 
 def execute(tool_name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
