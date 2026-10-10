@@ -22,3 +22,5 @@ numpy==2.5.3
 httpx==0.28.1
 # MCP Server：把系统能力按 Model Context Protocol 暴露给外部客户端
 mcp==2.3.0
+# Agent 编排：显式状态图（节点 / 条件边 / 状态收敛）
+langgraph==1.2.14

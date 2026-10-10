@@ -397,6 +397,86 @@ def test_context_counts_history_chars(admin_ctx: tools.ToolContext) -> None:
     assert result["context_chars"]["history"] == 10
 
 
+# ------------------------------------------------------------------ 编排
+
+
+def test_default_orchestrator_is_langgraph(admin_ctx: tools.ToolContext) -> None:
+    llm = ScriptedLLM([ChatTurn(content="共 4 台设备。")])
+
+    result = agent.answer(
+        admin_ctx.db,
+        question="设备情况怎么样",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+    )
+
+    assert result["orchestrator"] == "langgraph"
+
+
+def test_loop_orchestrator_is_still_available(admin_ctx: tools.ToolContext) -> None:
+    """手写循环保留作为对照与兜底：同样的输入应当给出同样的结果。"""
+    turns = [_call("query_overview"), ChatTurn(content="当前共 4 台设备。")]
+
+    loop_result = agent.answer(
+        admin_ctx.db,
+        question="设备情况怎么样",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=ScriptedLLM(list(turns)),
+        orchestrator="loop",
+    )
+    graph_result = agent.answer(
+        admin_ctx.db,
+        question="设备情况怎么样",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=ScriptedLLM(list(turns)),
+        orchestrator="langgraph",
+    )
+
+    assert loop_result["orchestrator"] == "loop"
+    assert graph_result["orchestrator"] == "langgraph"
+    assert loop_result["answer"] == graph_result["answer"]
+    assert loop_result["used_tools"] == graph_result["used_tools"] == ["query_overview"]
+    assert [step["tool"] for step in loop_result["steps"]] == [
+        step["tool"] for step in graph_result["steps"]
+    ]
+
+
+def test_graph_nodes_are_explicit() -> None:
+    """图是显式的：节点名字一眼能看出流程，这是选状态图而不是黑盒循环的理由。"""
+    from app.ai import graph_agent
+
+    nodes = set(graph_agent.build_graph().get_graph().nodes)
+
+    assert {"prepare", "plan", "execute_tools", "partial"} <= nodes
+
+
+def test_graph_failure_falls_back_to_loop(
+    admin_ctx: tools.ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """图编排自身出问题时不能让问答失败，要退回手写循环并标明。"""
+    from app.ai import graph_agent
+
+    def boom(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("graph exploded")
+
+    monkeypatch.setattr(graph_agent, "run", boom)
+    llm = ScriptedLLM([ChatTurn(content="兜底回答。")])
+
+    result = agent.answer(
+        admin_ctx.db,
+        question="设备情况怎么样",
+        user=admin_ctx.user,
+        permissions=admin_ctx.permissions,
+        llm=llm,
+    )
+
+    assert result["answer"] == "兜底回答。"
+    assert "回退" in result["orchestrator"]
+
+
 # ------------------------------------------------------------------ 接口
 
 

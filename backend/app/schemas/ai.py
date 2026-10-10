@@ -150,3 +150,6 @@ class AskOut(BaseModel):
     elapsed_ms: int
     context_chars: AskContextOut
     history_turns: int = Field(default=0, description="本次实际带入的历史轮数")
+    orchestrator: str = Field(
+        default="langgraph", description="本次实际使用的编排实现：langgraph 或 loop"
+    )

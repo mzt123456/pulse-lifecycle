@@ -212,8 +212,86 @@ def answer(
     client_ip: str | None = None,
     max_steps: int = MAX_STEPS,
     history: Any = None,
+    orchestrator: str | None = None,
 ) -> dict[str, Any]:
-    """用工具调用回答一个业务问题；history 为之前的问答轮次（可选）。"""
+    """用工具调用回答一个业务问题。
+
+    编排方式由配置 `AI_ORCHESTRATOR` 决定：默认走 LangGraph 状态图（`graph_agent`），
+    也可以切回手写循环（`loop`）。两套共用同一批工具、同一套权限与审计，
+    所以换编排方式不改变对外行为——返回里的 `orchestrator` 会写明这次实际用的是哪套。
+    """
+    mode = (orchestrator or get_settings().ai_orchestrator or "langgraph").strip().lower()
+
+    # 没有模型时不需要编排，直接按降级返回（两条路径行为一致）
+    if llm is None:
+        result = _answer_with_loop(
+            db,
+            question=question,
+            user=user,
+            permissions=permissions,
+            llm=None,
+            client_ip=client_ip,
+            max_steps=max_steps,
+            history=history,
+        )
+        result["orchestrator"] = "none"
+        return result
+
+    if mode == "langgraph":
+        try:
+            from app.ai import graph_agent
+
+            return graph_agent.run(
+                db,
+                question=question,
+                user=user,
+                permissions=permissions,
+                llm=llm,
+                client_ip=client_ip,
+                max_steps=max_steps,
+                history=history,
+            )
+        except Exception:  # 图编排本身出问题不能拖垮问答，退回手写循环
+            logger.exception("LangGraph 编排失败，回退到手写循环")
+            result = _answer_with_loop(
+                db,
+                question=question,
+                user=user,
+                permissions=permissions,
+                llm=llm,
+                client_ip=client_ip,
+                max_steps=max_steps,
+                history=history,
+            )
+            result["orchestrator"] = "loop（LangGraph 异常回退）"
+            return result
+
+    result = _answer_with_loop(
+        db,
+        question=question,
+        user=user,
+        permissions=permissions,
+        llm=llm,
+        client_ip=client_ip,
+        max_steps=max_steps,
+        history=history,
+    )
+    result["orchestrator"] = "loop"
+    return result
+
+
+def _answer_with_loop(
+    db: Session,
+    *,
+    question: str,
+    user: User,
+    permissions: frozenset[str],
+    llm: ToolCallingClient | None,
+    client_ip: str | None = None,
+    max_steps: int = MAX_STEPS,
+    history: Any = None,
+) -> dict[str, Any]:
+    """手写循环版编排：保留下来作为对照与兜底（LangGraph 不可用时走这里）。"""
     started = time.perf_counter()
     model_name = getattr(llm, "model", None)
     turns = _normalize_history(history)

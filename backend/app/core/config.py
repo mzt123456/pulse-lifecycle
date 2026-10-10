@@ -106,6 +106,13 @@ class Settings(BaseSettings):
     ai_rerank: bool = True
     ai_rerank_min_score: int = 5
 
+    # Agent 编排方式：langgraph = 显式状态图（默认）；loop = 手写循环（对照与兜底）
+    ai_orchestrator: str = Field(
+        default="langgraph",
+        validation_alias=AliasChoices("AI_ORCHESTRATOR",),
+        description="Agent 编排实现：langgraph 或 loop",
+    )
+
     # 向量检索（见 app/ai/embedding.py）：
     #   none  = 只用 BM25（默认，零依赖）
     #   api   = 走 OpenAI 兼容的 /embeddings（通义 text-embedding-v4、智谱 embedding-3 都兼容）
