@@ -1,0 +1,22 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	prepare(prepare)
+	plan(plan)
+	execute_tools(execute_tools)
+	partial(partial)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> prepare;
+	execute_tools -.-> partial;
+	execute_tools -.-> plan;
+	plan -.-> __end__;
+	plan -.-> execute_tools;
+	prepare --> plan;
+	partial --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
