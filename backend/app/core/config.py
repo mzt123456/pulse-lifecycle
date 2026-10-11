@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     ai_rerank: bool = True
     ai_rerank_min_score: int = 5
 
+    # 短期会话记忆：进程内保存最近几轮问答，按会话 ID 续接（见 app/ai/memory.py）
+    ai_memory_ttl_minutes: int = 30
+    ai_memory_max_conversations: int = 200
+
     # 向量检索（见 app/ai/embedding.py）：
     #   none  = 只用 BM25（默认，零依赖）
     #   api   = 走 OpenAI 兼容的 /embeddings（通义 text-embedding-v4、智谱 embedding-3 都兼容）

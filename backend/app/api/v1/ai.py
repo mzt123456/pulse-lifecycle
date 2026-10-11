@@ -15,6 +15,7 @@ from app.ai import agent
 from app.ai import diagnosis
 from app.ai.embedding import build_embedder
 from app.ai.llm import build_chat_client
+from app.ai.memory import get_memory
 from app.ai.rerank import build_reranker
 from app.core.config import get_settings
 from app.core.deps import get_current_user, require_permission
@@ -108,6 +109,16 @@ def ask_question(
     所以权限要在工具粒度上判断，并把无权限的工具整体隐藏掉。
     """
     _, permissions = load_roles_and_permissions(db, user)
+
+    # 短期记忆：优先用服务端的会话；服务端没有（比如刚重启）就退回请求体带来的历史，
+    # 两条路都不通时就是一轮单问单答
+    memory = get_memory()
+    turns = memory.resolve(payload.conversation_id, user.id)
+    memory_source = "server"
+    if not turns:
+        turns = [(item.question, item.answer) for item in payload.history]
+        memory_source = "client" if turns else "none"
+
     result = agent.answer(
         db,
         question=payload.question,
@@ -116,6 +127,27 @@ def ask_question(
         llm=llm,
         client_ip=request.client.host if request.client else None,
         max_steps=payload.max_steps,
-        history=[item.model_dump() for item in payload.history],
+        history=[{"question": question, "answer": answer} for question, answer in turns],
     )
-    return ok(AskOut.model_validate(result).model_dump(mode="json"))
+    # 本轮问答写回会话：模型不可用时 answer 为空，问题照样记下来（下一轮能接上文）
+    conversation_id = memory.append(
+        payload.conversation_id, user.id, payload.question, result.get("answer")
+    )
+    data = AskOut.model_validate(
+        {**result, "conversation_id": conversation_id, "memory_source": memory_source}
+    )
+    return ok(data.model_dump(mode="json"))
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    response_model=ApiResponse,
+    summary="忘记一个会话（清空短期记忆）",
+)
+def forget_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """只删自己的会话；不存在或不属于当前用户时返回 removed=false，天然幂等。"""
+    removed = get_memory().clear(conversation_id, user.id)
+    return ok({"conversation_id": conversation_id, "removed": removed})

@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import {
   askQuestion,
   diagnoseFault,
+  forgetConversation,
   getCorpusStats,
   type AskTurn,
   type AskResult,
@@ -18,6 +19,9 @@ import { useUserStore } from '@/store/user'
 import type { Equipment } from '@/types'
 
 type Mode = 'diagnosis' | 'ask'
+
+/** 会话 ID 存在 sessionStorage：同一个标签页刷新还能续上，关掉标签页就重新开始 */
+const CONVERSATION_KEY = 'pulse-ai-conversation'
 
 interface AssistantEntry {
   id: number
@@ -37,6 +41,8 @@ const mode = ref<Mode>('ask')
 const question = ref('')
 const submitting = ref(false)
 const entries = ref<AssistantEntry[]>([])
+/** 服务端短期记忆的会话 ID：存在 sessionStorage 里，刷新页面还能接着聊，关掉标签页就忘 */
+const conversationId = ref<string | null>(sessionStorage.getItem(CONVERSATION_KEY))
 
 const equipmentId = ref<number | null>(null)
 const faultType = ref('')
@@ -70,8 +76,28 @@ function recentHistory(): AskTurn[] {
     .map((item) => ({ question: item.question, answer: item.ask?.answer ?? null }))
 }
 
-function clearHistory(): void {
+function rememberConversation(id: string | null): void {
+  conversationId.value = id
+  if (id) {
+    sessionStorage.setItem(CONVERSATION_KEY, id)
+  } else {
+    sessionStorage.removeItem(CONVERSATION_KEY)
+  }
+}
+
+/** 清空会话：本地立即生效，服务端记忆顺手删掉（失败也不影响本地清空，服务端还有 TTL）。 */
+async function clearHistory(): Promise<void> {
+  const previous = conversationId.value
   entries.value = []
+  rememberConversation(null)
+  if (!previous) {
+    return
+  }
+  try {
+    await forgetConversation(previous)
+  } catch (error) {
+    console.warn('清空服务端会话记忆失败', error)
+  }
 }
 
 onMounted(async () => {
@@ -153,7 +179,13 @@ async function submit(): Promise<void> {
         top_k: 5,
       })
     } else {
-      entry.ask = await askQuestion({ question: text, history: recentHistory() })
+      entry.ask = await askQuestion({
+        question: text,
+        conversation_id: conversationId.value ?? undefined,
+        history: recentHistory(),
+      })
+      // 服务端会把会话 ID 发回来（服务端不认识的旧 ID 会换成新的）
+      rememberConversation(entry.ask.conversation_id)
     }
     question.value = ''
     entries.value.unshift(entry)
@@ -392,7 +424,20 @@ async function submit(): Promise<void> {
           <el-tag v-if="entry.ask.skill" size="small">技能 {{ entry.ask.skill }}</el-tag>
           <span>耗时 {{ entry.ask.elapsed_ms }} ms</span>
           <span v-if="entry.ask.model">模型 {{ entry.ask.model }}</span>
-          <span v-if="entry.ask.history_turns">带入 {{ entry.ask.history_turns }} 轮历史</span>
+          <el-tooltip
+            v-if="entry.ask.history_turns"
+            :content="
+              entry.ask.memory_source === 'server'
+                ? `服务端短期记忆，会话 ${entry.ask.conversation_id}`
+                : '服务端没有这个会话（例如服务刚重启），本轮用随请求带来的历史兜底'
+            "
+            placement="top"
+          >
+            <span>
+              带入 {{ entry.ask.history_turns }} 轮
+              {{ entry.ask.memory_source === 'server' ? '服务端记忆' : '历史' }}
+            </span>
+          </el-tooltip>
           <el-tooltip
             :content="`技能索引常驻 ${entry.ask.context_chars.skill_index} 字；若把全部技能正文与参考资料一次装入，需要 ${entry.ask.context_chars.all_skills_full} 字；本次历史问答占用 ${entry.ask.context_chars.history} 字`"
             placement="top"

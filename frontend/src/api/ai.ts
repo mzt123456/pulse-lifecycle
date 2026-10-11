@@ -86,6 +86,10 @@ export interface AskResult {
   reason: string | null
   model: string | null
   elapsed_ms: number
+  /** 服务端发放的会话 ID，追问时带回去即可续上短期记忆 */
+  conversation_id: string | null
+  /** 本次历史来自服务端记忆（server）、随请求带来（client）还是无历史（none） */
+  memory_source: 'server' | 'client' | 'none'
   context_chars: {
     system_prompt: number
     skill_index: number
@@ -129,7 +133,9 @@ export function diagnoseFault(payload: DiagnosisPayload): Promise<DiagnosisResul
 export function askQuestion(payload: {
   question: string
   max_steps?: number
-  /** 最近几轮问答，用于追问；服务端只取最近 6 轮 */
+  /** 会话 ID：带上它就用服务端的短期记忆续接 */
+  conversation_id?: string
+  /** 最近几轮问答：服务端没有该会话时（例如刚重启）作为兜底 */
   history?: AskTurn[]
 }): Promise<AskResult> {
   return request<AskResult>({
@@ -138,6 +144,14 @@ export function askQuestion(payload: {
     data: payload,
     timeout: AI_TIMEOUT_MS,
   })
+}
+
+/** 忘掉服务端的会话记忆；不存在时也返回成功（幂等）。 */
+export function forgetConversation(conversationId: string): Promise<{
+  conversation_id: string
+  removed: boolean
+}> {
+  return request({ url: `/ai/conversations/${conversationId}`, method: 'delete' })
 }
 
 export function getCorpusStats(): Promise<CorpusStats> {

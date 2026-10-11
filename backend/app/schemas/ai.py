@@ -115,7 +115,12 @@ class AskRequest(BaseModel):
     history: list[AskTurnIn] = Field(
         default_factory=list,
         max_length=8,
-        description="最近几轮问答，用于追问；服务端只取最近 6 轮",
+        description="最近几轮问答。填了 conversation_id 时以服务端记忆为准，这里作为兜底（服务重启后仍能续上）",
+    )
+    conversation_id: str | None = Field(
+        default=None,
+        max_length=64,
+        description="会话 ID：同一会话的追问带上它即可，服务端会记住最近几轮；留空则新建",
     )
 
 
@@ -150,3 +155,7 @@ class AskOut(BaseModel):
     elapsed_ms: int
     context_chars: AskContextOut
     history_turns: int = Field(default=0, description="本次实际带入的历史轮数")
+    conversation_id: str | None = Field(default=None, description="会话 ID，追问时带回来")
+    memory_source: str = Field(
+        default="none", description="本次历史来自服务端记忆（server）、请求体（client）还是无历史（none）"
+    )
