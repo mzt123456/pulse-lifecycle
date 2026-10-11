@@ -167,8 +167,8 @@ def _skill_source(question: str, history: list[tuple[str, str | None]]) -> str:
     return " ".join([*recent, question])
 
 
-def _degraded_result(question: str, history: Any, reason: str) -> dict[str, Any]:
-    turns = _normalize_history(history)
+def _degraded_result(reason: str, *, turns: int, chars: int) -> dict[str, Any]:
+    """降级返回：只报数，不回内容——调用方负责算好带入了多少轮、多少字。"""
     return {
         "answer": None,
         "skill": None,
@@ -178,12 +178,12 @@ def _degraded_result(question: str, history: Any, reason: str) -> dict[str, Any]
         "reason": reason,
         "model": None,
         "elapsed_ms": 0,
-        "history_turns": len(turns),
+        "history_turns": turns,
         "context_chars": {
             "system_prompt": 0,
             "skill_index": 0,
             "all_skills_full": 0,
-            "history": sum(len(item[0]) + len(item[1] or "") for item in turns),
+            "history": chars,
         },
     }
 
@@ -201,17 +201,28 @@ def answer(
     client_ip: str | None = None,
     max_steps: int = MAX_STEPS,
     history: Any = None,
+    thread_id: str | None = None,
 ) -> dict[str, Any]:
     """用工具调用回答一个业务问题：编排交给 LangGraph 状态图。
 
     这里只负责两件框架不该管的事：没有模型时按降级返回（而不是报错）；
     图执行本身出意外时给出降级说明与原因（而不是抛 500）。
-    """
-    if llm is None:
-        return _degraded_result(question, history, "未配置大模型 API Key，无法进行数据问答")
 
+    `thread_id` 是会话 ID：编排层用它去检查点里取上一轮的上下文（短期记忆）。
+    """
+    # 局部导入：graph_agent 依赖本模块的系统提示词与辅助函数，放模块顶层会成环
     from app.ai import graph_agent
 
+    if llm is None:
+        # 没有 Key 时不进图，但"带入了多少轮"照样按检查点里的实际上下文报
+        turns, chars = graph_agent.prior_context(thread_id)
+        if not turns:
+            seed = _normalize_history(history)
+            turns, chars = len(seed), sum(len(item[0]) + len(item[1] or "") for item in seed)
+        return _degraded_result("未配置大模型 API Key，无法进行数据问答", turns=turns, chars=chars)
+
+    # 本轮开始前的上下文规模：图跑挂了也要如实报，而且此时问题可能已经写进检查点了
+    before_turns, before_chars = graph_agent.prior_context(thread_id)
     try:
         return graph_agent.run(
             db,
@@ -222,7 +233,10 @@ def answer(
             client_ip=client_ip,
             max_steps=max_steps,
             history=history,
+            thread_id=thread_id,
         )
     except Exception:
         logger.exception("图编排执行失败")
-        return _degraded_result(question, history, "编排执行失败，请稍后重试")
+        return _degraded_result(
+            "编排执行失败，请稍后重试", turns=before_turns, chars=before_chars
+        )

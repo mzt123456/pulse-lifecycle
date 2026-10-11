@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.ai import corpus as corpus_module
 from app.ai import agent
 from app.ai import diagnosis
+from app.ai import graph_agent
 from app.ai.embedding import build_embedder
 from app.ai.llm import build_chat_client
 from app.ai.memory import get_memory
@@ -110,14 +111,19 @@ def ask_question(
     """
     _, permissions = load_roles_and_permissions(db, user)
 
-    # 短期记忆：优先用服务端的会话；服务端没有（比如刚重启）就退回请求体带来的历史，
-    # 两条路都不通时就是一轮单问单答
+    # 短期记忆：会话内容在 LangGraph 的检查点里，这里先取到本次要用的会话 ID
     memory = get_memory()
-    turns = memory.resolve(payload.conversation_id, user.id)
-    memory_source = "server"
-    if not turns:
-        turns = [(item.question, item.answer) for item in payload.history]
-        memory_source = "client" if turns else "none"
+    conversation_id = memory.register(
+        payload.conversation_id if memory.owns(payload.conversation_id, user.id) else None,
+        user.id,
+    )
+    # 检查点里有上下文就用它（server）；没有（新会话或服务刚重启）就退回请求体带来的历史
+    prior_turns, _ = graph_agent.prior_context(conversation_id)
+    if prior_turns:
+        memory_source, seed = "server", []
+    else:
+        seed = [item.model_dump() for item in payload.history]
+        memory_source = "client" if seed else "none"
 
     result = agent.answer(
         db,
@@ -127,11 +133,8 @@ def ask_question(
         llm=llm,
         client_ip=request.client.host if request.client else None,
         max_steps=payload.max_steps,
-        history=[{"question": question, "answer": answer} for question, answer in turns],
-    )
-    # 本轮问答写回会话：模型不可用时 answer 为空，问题照样记下来（下一轮能接上文）
-    conversation_id = memory.append(
-        payload.conversation_id, user.id, payload.question, result.get("answer")
+        history=seed,
+        thread_id=conversation_id,
     )
     data = AskOut.model_validate(
         {**result, "conversation_id": conversation_id, "memory_source": memory_source}

@@ -18,6 +18,16 @@ START → prepare（选技能、拼提示词、设预算）
 
     工具、权限、审计、降级这些行为都在自己手里：工具用 @tool 定义但执行走 `tools.run_tool`，
     所以框架只负责图怎么跑，业务约束一条都没交出去。
+
+短期记忆用 LangGraph 的 **checkpointer**（`InMemorySaver`）实现：编译图时挂上它，
+每轮按 `thread_id`（就是会话 ID）恢复上一次的状态，节点的执行结果自动存回检查点。
+两处配套的设计：
+
+1. **每轮重写消息列表**：`prepare` 用 `RemoveMessage(REMOVE_ALL_MESSAGES)` 清掉旧列表，
+   再按「系统提示词 → 检查点里的历史消息 → 本轮问题」的顺序重建。这样系统提示词里的技能正文
+   每轮都能按当前话题刷新，而历史（含工具调用与工具返回）来自检查点，不用自己存；
+2. **裁剪落在状态上**：重建时用 `trim_messages` 按字符预算取最近若干轮，多出来的消息
+   连同 `REMOVE_ALL_MESSAGES` 一起丢掉，所以检查点不会无限增长。
 """
 
 from __future__ import annotations
@@ -26,12 +36,21 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
+from uuid import uuid4
 
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import BaseTool
 from langchain_core.messages.utils import trim_messages
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
+from langgraph.graph.message import REMOVE_ALL_MESSAGES, add_messages
 from langgraph.runtime import Runtime
 from sqlalchemy.orm import Session
 
@@ -59,11 +78,13 @@ class AskState(TypedDict, total=False):
     """图的状态：每个节点只读写自己负责的字段。"""
 
     question: str
+    # 请求体带来的历史（只在检查点里还没有上下文时用作种子）
     history: list[tuple[str, str | None]]
-    # add_messages：节点只返回"新增的消息"，由 reducer 负责追加，不用自己拼列表
+    # add_messages reducer：节点返回的消息对象按顺序并入；整个列表由 prepare 按窗口重写
     messages: Annotated[list[AnyMessage], add_messages]
     skill: str | None
     context_chars: dict[str, int]
+    history_turns: int
     pending: list[dict[str, Any]]
     steps: list[dict[str, Any]]
     used_tools: list[str]
@@ -93,33 +114,38 @@ class AskContext:
 
 
 def _prepare(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
-    """节点：选技能、拼系统提示词、准备消息历史与预算。"""
+    """节点：选技能、拼系统提示词、按检查点重建消息窗口，并重置本轮预算。"""
     question = state["question"]
-    turns = state.get("history") or []
+    # 检查点里的历史（含工具调用与工具返回）；线程新建时用请求体带来的历史做种子
+    prior = [
+        item for item in state.get("messages") or [] if not isinstance(item, SystemMessage)
+    ]
+    for past_question, past_answer in ([] if prior else state.get("history") or []):
+        prior.append(HumanMessage(past_question))
+        if past_answer:
+            prior.append(AIMessage(past_answer))
+
+    # 技能继承看最近两轮用户提问：追问句本身没有触发词，只看本轮会丢掉技能上下文
+    recent_questions = [str(item.content) for item in prior if isinstance(item, HumanMessage)][-2:]
+    asked_before = len([item for item in prior if isinstance(item, HumanMessage)])
+    prior_chars = sum(len(str(item.content or "")) for item in prior)
+
     skills = load_skills()
     index_text = skill_index(skills)
-    skill = select_skill(_skill_source(question, turns), skills)
+    skill = select_skill(" ".join([*recent_questions, question]), skills)
     skill_context = render_context(skill)
 
     prompt = BASE_SYSTEM_PROMPT
-    if turns:
+    if prior:
         prompt += MULTI_TURN_PROMPT
     if index_text:
         prompt += f"\n\n可用技能（命中才展开正文）：\n{index_text}"
     if skill_context:
         prompt += f"\n\n{skill_context}"
 
-    messages: list[AnyMessage] = [SystemMessage(prompt)]
-    for past_question, past_answer in turns:
-        messages.append(HumanMessage(past_question))
-        if past_answer:
-            messages.append(AIMessage(past_answer))
-    messages.append(HumanMessage(question))
-
-    # 历史裁剪交给框架：按字符预算保留最近若干轮，system 常驻、从 user 消息开始，
-    # 避免裁出以 assistant/tool 开头的非法序列
-    messages = trim_messages(
-        messages,
+    # 先拼完整列表再裁剪：system 常驻、从 user 消息开始，避免裁出以 assistant/tool 开头的非法序列
+    window = trim_messages(
+        [SystemMessage(prompt), *prior, HumanMessage(question)],
         max_tokens=MESSAGE_CHAR_BUDGET,
         token_counter=lambda items: sum(len(str(item.content or "")) for item in items),
         strategy="last",
@@ -128,18 +154,21 @@ def _prepare(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
     )
 
     return {
-        "messages": messages,
+        # 整段重写：清掉检查点里的旧列表，再放回裁剪后的窗口，检查点因此不会无限增长
+        "messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *window],
         "skill": skill.name if skill else None,
         "budget_left": runtime.context.max_steps,
         "context_chars": {
             "system_prompt": len(prompt),
             "skill_index": len(index_text),
             "all_skills_full": full_context_size(skills),
-            "history": sum(len(item[0]) + len(item[1] or "") for item in turns),
+            "history": prior_chars,
         },
+        "history_turns": asked_before,
         "steps": [],
         "used_tools": [],
         "pending": [],
+        "answer": None,
         "degraded": False,
         "reason": None,
     }
@@ -166,6 +195,8 @@ def _plan(state: AskState, runtime: Runtime[AskContext]) -> dict[str, Any]:
     if not turn.tool_calls:
         return {
             "answer": turn.content,
+            # 结论也要进消息列表：检查点存的是一段完整对话，下一轮靠它才看得到上一轮的回答
+            "messages": [AIMessage(content=turn.content)] if turn.content else [],
             "pending": [],
             "reason": None if turn.content else "模型没有给出回答",
         }
@@ -257,8 +288,47 @@ def _route_after_tools(state: AskState) -> str:
     return "plan" if state.get("budget_left", 0) > 0 else "partial"
 
 
+_CHECKPOINTER: InMemorySaver | None = None
+_GRAPH: Any | None = None
+
+
+def get_checkpointer() -> InMemorySaver:
+    """进程内的检查点存储：按 thread_id 保存每轮图状态（短期会话记忆的实体）。"""
+    global _CHECKPOINTER
+    if _CHECKPOINTER is None:
+        _CHECKPOINTER = InMemorySaver()
+    return _CHECKPOINTER
+
+
+def reset_checkpointer() -> None:
+    """丢掉全部检查点并让图重新编译。
+
+    只给测试与"清空所有会话"用：换掉实例后必须重新编译，否则图还挂在旧的检查点上。
+    """
+    global _CHECKPOINTER, _GRAPH
+    _CHECKPOINTER = InMemorySaver()
+    _GRAPH = None
+
+
+def thread_config(thread_id: str) -> dict[str, Any]:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def prior_context(thread_id: str | None) -> tuple[int, int]:
+    """读检查点里已有的上下文：返回（历史轮数, 历史字符数）。没有线程或没有记录就是 (0, 0)。"""
+    if not thread_id:
+        return (0, 0)
+    snapshot = get_graph().get_state(thread_config(thread_id))
+    messages = (snapshot.values or {}).get("messages") or []
+    turns = sum(1 for item in messages if isinstance(item, HumanMessage))
+    chars = sum(
+        len(str(item.content or "")) for item in messages if not isinstance(item, SystemMessage)
+    )
+    return (turns, chars)
+
+
 def build_graph() -> Any:
-    """编译状态图（进程内只编译一次）。"""
+    """编译状态图（进程内只编译一次），挂上检查点存储。"""
     builder = StateGraph(AskState, context_schema=AskContext)
     builder.add_node("prepare", _prepare)
     builder.add_node("plan", _plan)
@@ -274,10 +344,7 @@ def build_graph() -> Any:
         "execute_tools", _route_after_tools, {"plan": "plan", "partial": "partial"}
     )
     builder.add_edge("partial", END)
-    return builder.compile()
-
-
-_GRAPH: Any | None = None
+    return builder.compile(checkpointer=get_checkpointer())
 
 
 def get_graph() -> Any:
@@ -297,10 +364,18 @@ def run(
     client_ip: str | None = None,
     max_steps: int = 5,
     history: Any = None,
+    thread_id: str | None = None,
 ) -> dict[str, Any]:
-    """跑一遍状态图，返回接口层需要的响应结构。"""
+    """跑一遍状态图，返回接口层需要的响应结构。
+
+    `thread_id` 就是会话 ID：传了它，这一轮的图状态会存进检查点，下一轮能接着用；
+    没传（例如直接调用的单元测试）就开一个临时线程，跑完删掉——不留记忆，也不留垃圾。
+    """
     started = time.perf_counter()
     turns = _normalize_history(history)
+    prior_turns, prior_chars = prior_context(thread_id)
+    ephemeral = thread_id is None
+    thread_id = thread_id or f"ephemeral-{uuid4().hex}"
 
     available = tools.tools_for(permissions)
     if "fault.view" in permissions:
@@ -315,12 +390,12 @@ def run(
             "reason": "当前账号没有可用的数据查询权限",
             "model": getattr(llm, "model", None),
             "elapsed_ms": 0,
-            "history_turns": len(turns),
+            "history_turns": prior_turns or len(turns),
             "context_chars": {
                 "system_prompt": 0,
                 "skill_index": 0,
                 "all_skills_full": 0,
-                "history": 0,
+                "history": prior_chars,
             },
         }
     registry = {item.name: item for item in available}
@@ -339,12 +414,17 @@ def run(
         max_steps=max_steps,
     )
 
-    final = get_graph().invoke(
-        {"question": question, "history": turns},
-        context=context,
-        # 关掉递归上限告警：步数由 budget_left 自己控制，图深度是有界的
-        config={"recursion_limit": (max_steps + 2) * 3},
-    )
+    try:
+        final = get_graph().invoke(
+            {"question": question, "history": turns},
+            context=context,
+            # recursion_limit 关掉递归上限告警：步数由 budget_left 自己控制，图深度是有界的
+            config={**thread_config(thread_id), "recursion_limit": (max_steps + 2) * 3},
+        )
+    finally:
+        if ephemeral:
+            # 单问单答不留检查点，否则进程里会攒下一堆一次性的线程
+            get_checkpointer().delete_thread(thread_id)
 
     return {
         "answer": final.get("answer"),
@@ -355,7 +435,7 @@ def run(
         "reason": final.get("reason"),
         "model": getattr(llm, "model", None),
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
-        "history_turns": len(turns),
+        "history_turns": final.get("history_turns", prior_turns or len(turns)),
         "context_chars": final.get("context_chars")
         or {"system_prompt": 0, "skill_index": 0, "all_skills_full": 0, "history": 0},
     }
