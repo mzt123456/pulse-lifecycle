@@ -1,19 +1,18 @@
-<script setup lang="ts">
+<script setup>
 /** 模型回答渲染：只允许 Markdown 语法，禁用原始 HTML，避免注入。 */
-
-import MarkdownIt from 'markdown-it'
-import { computed } from 'vue'
-
-const props = defineProps<{ text: string }>()
-
+import MarkdownIt from 'markdown-it';
+import { computed } from 'vue';
+// 运行期 props：要渲染的 Markdown 正文
+const props = defineProps({
+    text: { type: String, required: true },
+});
 const md = new MarkdownIt({
-  html: false, // 不允许原始 HTML：模型输出属于不可信内容
-  linkify: false,
-  breaks: true,
-  typographer: false,
-})
-
-const rendered = computed(() => md.render(props.text ?? ''))
+    html: false, // 不允许原始 HTML：模型输出属于不可信内容
+    linkify: false,
+    breaks: true,
+    typographer: false,
+});
+const rendered = computed(() => md.render(props.text ?? ''));
 </script>
 
 <template>

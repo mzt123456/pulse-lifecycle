@@ -1,63 +1,55 @@
-<script setup lang="ts">
-import { ElMessageBox } from 'element-plus'
-import { computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-
-const route = useRoute()
-const router = useRouter()
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const activeMenu = computed(() => route.path)
-const currentTitle = computed(() => route.meta.title ?? '')
-const asideWidth = computed(() => (preferences.navCollapsed ? '0px' : '200px'))
-
+<script setup>
+import { ElMessageBox } from 'element-plus';
+import { computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+const route = useRoute();
+const router = useRouter();
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const activeMenu = computed(() => route.path);
+const currentTitle = computed(() => route.meta.title ?? '');
+const asideWidth = computed(() => (preferences.navCollapsed ? '0px' : '200px'));
 /** 菜单按权限点显隐；没有权限点的菜单所有人可见。 */
 const MENUS = [
-  { path: '/dashboard', title: '数据总览', permission: '' },
-  { path: '/equipment', title: '设备管理', permission: 'equipment.view' },
-  { path: '/operations', title: '使用管理', permission: 'well_operation.view' },
-  { path: '/maintenance', title: '维保管理', permission: 'maintenance.view' },
-  { path: '/faults', title: '故障记录', permission: 'fault.view' },
-  { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
-  { path: '/reports', title: '报表中心', permission: 'report.view' },
-  { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
-  // 知识库是智能助手的语料来源，按 knowledge.view 控制可见性
-  { path: '/knowledge', title: '知识库', permission: 'knowledge.view' },
-  // 智能助手对登录用户可见：诊断能力需要 fault.view，页内会按权限隐藏该模式
-  { path: '/assistant', title: '智能助手', permission: '' },
-]
-
-const visibleMenus = computed(() =>
-  MENUS.filter((item) => !item.permission || store.has(item.permission)),
-)
-
+    { path: '/dashboard', title: '数据总览', permission: '' },
+    { path: '/equipment', title: '设备管理', permission: 'equipment.view' },
+    { path: '/operations', title: '使用管理', permission: 'well_operation.view' },
+    { path: '/maintenance', title: '维保管理', permission: 'maintenance.view' },
+    { path: '/faults', title: '故障记录', permission: 'fault.view' },
+    { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
+    { path: '/reports', title: '报表中心', permission: 'report.view' },
+    { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
+    // 知识库是智能助手的语料来源，按 knowledge.view 控制可见性
+    { path: '/knowledge', title: '知识库', permission: 'knowledge.view' },
+    // 智能助手对登录用户可见：诊断能力需要 fault.view，页内会按权限隐藏该模式
+    { path: '/assistant', title: '智能助手', permission: '' },
+];
+const visibleMenus = computed(() => MENUS.filter((item) => !item.permission || store.has(item.permission)));
 onMounted(async () => {
-  await preferences.load()
-  // 每次进入后台都刷新一次当前用户：权限调整可在下次请求即生效
-  try {
-    await store.loadMe()
-  } catch {
-    // 令牌失效时由请求封装负责清理并跳转登录页
-  }
-})
-
-function toggleNav(): void {
-  void preferences.setNavCollapsed(!preferences.navCollapsed)
+    await preferences.load();
+    // 每次进入后台都刷新一次当前用户：权限调整可在下次请求即生效
+    try {
+        await store.loadMe();
+    }
+    catch {
+        // 令牌失效时由请求封装负责清理并跳转登录页
+    }
+});
+function toggleNav() {
+    void preferences.setNavCollapsed(!preferences.navCollapsed);
 }
-
-async function handleLogout(): Promise<void> {
-  try {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
-  } catch {
-    return
-  }
-  await store.logout()
-  preferences.reset()
-  await router.replace({ name: 'login' })
+async function handleLogout() {
+    try {
+        await ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' });
+    }
+    catch {
+        return;
+    }
+    await store.logout();
+    preferences.reset();
+    await router.replace({ name: 'login' });
 }
 </script>
 

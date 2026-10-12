@@ -1,191 +1,167 @@
-<script setup lang="ts">
-import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
-
-import { getDictItems } from '@/api/dict'
-import { downloadExcel } from '@/api/export'
-import { listEquipment } from '@/api/equipment'
-import {
-  createOperation,
-  deleteOperation,
-  listOperations,
-  updateOperation,
-  type OperationPayload,
-} from '@/api/operations'
-import { usePagedList } from '@/composables/usePagedList'
-import DataTable from '@/components/DataTable.vue'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import { compactParams } from '@/utils/params'
-import type { Equipment, TableColumn, WellOperation } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const columns: TableColumn[] = [
-  { key: 'equipment_no', label: '设备', width: 130 },
-  { key: 'well_no', label: '井号', width: 120, tooltip: true },
-  { key: 'start_date', label: '入井时间', width: 170 },
-  { key: 'end_date', label: '出井时间', width: 170 },
-  { key: 'run_hours', label: '时长(h)', width: 90, align: 'right' },
-  { key: 'footage', label: '进尺(m)', width: 100, align: 'right' },
-  { key: 'well_depth', label: '井深(m)', width: 100, align: 'right' },
-  { key: 'mud_density', label: '泥浆密度', width: 100, align: 'right' },
-  { key: 'instrument_type', label: '仪器类型', width: 110 },
-  { key: 'operator_name', label: '作业人员', width: 110, tooltip: true },
-  { key: 'bit_size', label: '井眼尺寸', width: 100, defaultHidden: true },
-  { key: 'mud_type', label: '泥浆类型', width: 110, defaultHidden: true },
-  { key: 'flow_rate', label: '排量', width: 100, defaultHidden: true },
-  { key: 'temperature', label: '井下温度', width: 110, defaultHidden: true },
-  { key: 'run_in_depth', label: '入井井深', width: 110, defaultHidden: true },
-  { key: 'run_out_depth', label: '出井井深', width: 110, defaultHidden: true },
-  { key: 'instrument_config', label: '仪器配置', width: 140, defaultHidden: true },
-  { key: 'remark', label: '备注', minWidth: 160, tooltip: true, defaultHidden: true },
-  { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
-]
-
-const EMPTY_FORM: OperationPayload = {
-  equipment_id: undefined,
-  well_no: '',
-  well_depth: '',
-  bit_size: '',
-  mud_type: '',
-  mud_density: '',
-  flow_rate: '',
-  start_date: null,
-  end_date: null,
-  run_hours: null,
-  run_in_depth: '',
-  run_out_depth: '',
-  footage: null,
-  temperature: '',
-  instrument_type: '',
-  instrument_config: '',
-  operator_name: '',
-  remark: '',
+<script setup>
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { onMounted, reactive, ref } from 'vue';
+import { getDictItems } from '@/api/dict';
+import { downloadExcel } from '@/api/export';
+import { listEquipment } from '@/api/equipment';
+import { createOperation, deleteOperation, listOperations, updateOperation, } from '@/api/operations';
+import { usePagedList } from '@/composables/usePagedList';
+import DataTable from '@/components/DataTable.vue';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+import { compactParams } from '@/utils/params';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const columns = [
+    { key: 'equipment_no', label: '设备', width: 130 },
+    { key: 'well_no', label: '井号', width: 120, tooltip: true },
+    { key: 'start_date', label: '入井时间', width: 170 },
+    { key: 'end_date', label: '出井时间', width: 170 },
+    { key: 'run_hours', label: '时长(h)', width: 90, align: 'right' },
+    { key: 'footage', label: '进尺(m)', width: 100, align: 'right' },
+    { key: 'well_depth', label: '井深(m)', width: 100, align: 'right' },
+    { key: 'mud_density', label: '泥浆密度', width: 100, align: 'right' },
+    { key: 'instrument_type', label: '仪器类型', width: 110 },
+    { key: 'operator_name', label: '作业人员', width: 110, tooltip: true },
+    { key: 'bit_size', label: '井眼尺寸', width: 100, defaultHidden: true },
+    { key: 'mud_type', label: '泥浆类型', width: 110, defaultHidden: true },
+    { key: 'flow_rate', label: '排量', width: 100, defaultHidden: true },
+    { key: 'temperature', label: '井下温度', width: 110, defaultHidden: true },
+    { key: 'run_in_depth', label: '入井井深', width: 110, defaultHidden: true },
+    { key: 'run_out_depth', label: '出井井深', width: 110, defaultHidden: true },
+    { key: 'instrument_config', label: '仪器配置', width: 140, defaultHidden: true },
+    { key: 'remark', label: '备注', minWidth: 160, tooltip: true, defaultHidden: true },
+    { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
+];
+const EMPTY_FORM = {
+    equipment_id: undefined,
+    well_no: '',
+    well_depth: '',
+    bit_size: '',
+    mud_type: '',
+    mud_density: '',
+    flow_rate: '',
+    start_date: null,
+    end_date: null,
+    run_hours: null,
+    run_in_depth: '',
+    run_out_depth: '',
+    footage: null,
+    temperature: '',
+    instrument_type: '',
+    instrument_config: '',
+    operator_name: '',
+    remark: '',
+};
+const filters = reactive({ equipment_id: undefined, well_no: '' });
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(filters, listOperations);
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-const filters = reactive<{ equipment_id?: number; well_no: string }>({ equipment_id: undefined, well_no: '' })
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<WellOperation, typeof filters>(filters, listOperations)
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
-}
-
-const equipmentOptions = ref<Equipment[]>([])
-const instrumentTypes = ref<string[]>([])
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const editingId = ref<number | null>(null)
-const formRef = ref<FormInstance>()
-const form = reactive<OperationPayload>({ ...EMPTY_FORM })
-const computedHint = ref('')
-
+const equipmentOptions = ref([]);
+const instrumentTypes = ref([]);
+const dialogVisible = ref(false);
+const submitting = ref(false);
+const editingId = ref(null);
+const formRef = ref();
+const form = reactive({ ...EMPTY_FORM });
+const computedHint = ref('');
 onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  const [dict, equipmentPage] = await Promise.all([
-    getDictItems(),
-    listEquipment({ page: 1, page_size: 100 }),
-  ])
-  instrumentTypes.value = dict['仪器类型'] ?? []
-  equipmentOptions.value = equipmentPage.items
-  await load()
-})
-
-function openCreate(): void {
-  editingId.value = null
-  Object.assign(form, EMPTY_FORM)
-  computedHint.value = ''
-  dialogVisible.value = true
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    const [dict, equipmentPage] = await Promise.all([
+        getDictItems(),
+        listEquipment({ page: 1, page_size: 100 }),
+    ]);
+    instrumentTypes.value = dict['仪器类型'] ?? [];
+    equipmentOptions.value = equipmentPage.items;
+    await load();
+});
+function openCreate() {
+    editingId.value = null;
+    Object.assign(form, EMPTY_FORM);
+    computedHint.value = '';
+    dialogVisible.value = true;
 }
-
-function openEdit(row: WellOperation): void {
-  editingId.value = row.id
-  Object.assign(form, {
-    equipment_id: row.equipment_id,
-    well_no: row.well_no,
-    well_depth: row.well_depth,
-    bit_size: row.bit_size,
-    mud_type: row.mud_type,
-    mud_density: row.mud_density,
-    flow_rate: row.flow_rate,
-    start_date: row.start_date,
-    end_date: row.end_date,
-    run_hours: row.run_hours,
-    run_in_depth: row.run_in_depth,
-    run_out_depth: row.run_out_depth,
-    footage: row.footage,
-    temperature: row.temperature,
-    instrument_type: row.instrument_type,
-    instrument_config: row.instrument_config,
-    operator_name: row.operator_name,
-    remark: row.remark,
-  })
-  computedHint.value = ''
-  dialogVisible.value = true
+function openEdit(row) {
+    editingId.value = row.id;
+    Object.assign(form, {
+        equipment_id: row.equipment_id,
+        well_no: row.well_no,
+        well_depth: row.well_depth,
+        bit_size: row.bit_size,
+        mud_type: row.mud_type,
+        mud_density: row.mud_density,
+        flow_rate: row.flow_rate,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        run_hours: row.run_hours,
+        run_in_depth: row.run_in_depth,
+        run_out_depth: row.run_out_depth,
+        footage: row.footage,
+        temperature: row.temperature,
+        instrument_type: row.instrument_type,
+        instrument_config: row.instrument_config,
+        operator_name: row.operator_name,
+        remark: row.remark,
+    });
+    computedHint.value = '';
+    dialogVisible.value = true;
 }
-
-async function submit(): Promise<void> {
-  if (!formRef.value) {
-    return
-  }
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-
-  submitting.value = true
-  try {
-    if (editingId.value === null) {
-      const saved = await createOperation({ ...form })
-      computedHint.value = `已保存：使用时长 ${saved.run_hours ?? '-'} 小时，进尺 ${saved.footage ?? '-'}`
-      ElMessage.success('使用记录已新增，设备累计值已同步')
-    } else {
-      const saved = await updateOperation(editingId.value, { ...form })
-      computedHint.value = `已保存：使用时长 ${saved.run_hours ?? '-'} 小时，进尺 ${saved.footage ?? '-'}`
-      ElMessage.success('使用记录已保存，设备累计值已按差额调整')
+async function submit() {
+    if (!formRef.value) {
+        return;
     }
-    await load()
-  } catch (error) {
-    console.warn('保存使用记录失败', error)
-  } finally {
-    submitting.value = false
-  }
+    const valid = await formRef.value.validate().catch(() => false);
+    if (!valid) {
+        return;
+    }
+    submitting.value = true;
+    try {
+        if (editingId.value === null) {
+            const saved = await createOperation({ ...form });
+            computedHint.value = `已保存：使用时长 ${saved.run_hours ?? '-'} 小时，进尺 ${saved.footage ?? '-'}`;
+            ElMessage.success('使用记录已新增，设备累计值已同步');
+        }
+        else {
+            const saved = await updateOperation(editingId.value, { ...form });
+            computedHint.value = `已保存：使用时长 ${saved.run_hours ?? '-'} 小时，进尺 ${saved.footage ?? '-'}`;
+            ElMessage.success('使用记录已保存，设备累计值已按差额调整');
+        }
+        await load();
+    }
+    catch (error) {
+        console.warn('保存使用记录失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-async function remove(row: WellOperation): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      `确定删除 ${row.equipment_no ?? ''} 的这条使用记录吗？设备累计值会同步回退。`,
-      '删除确认',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  try {
-    await deleteOperation(row.id)
-    ElMessage.success('已删除，设备累计值已回退')
-    await load()
-  } catch (error) {
-    console.warn('删除使用记录失败', error)
-  }
+async function remove(row) {
+    try {
+        await ElMessageBox.confirm(`确定删除 ${row.equipment_no ?? ''} 的这条使用记录吗？设备累计值会同步回退。`, '删除确认', { type: 'warning' });
+    }
+    catch {
+        return;
+    }
+    try {
+        await deleteOperation(row.id);
+        ElMessage.success('已删除，设备累计值已回退');
+        await load();
+    }
+    catch (error) {
+        console.warn('删除使用记录失败', error);
+    }
 }
-
-async function exportExcel(): Promise<void> {
-  try {
-    await downloadExcel(
-      '/well-operations/export',
-      compactParams({ equipment_id: filters.equipment_id, well_no: filters.well_no }),
-      '使用记录.xlsx',
-    )
-    ElMessage.success('导出已开始，请查看浏览器下载')
-  } catch (error) {
-    console.warn('导出失败', error)
-  }
+async function exportExcel() {
+    try {
+        await downloadExcel('/well-operations/export', compactParams({ equipment_id: filters.equipment_id, well_no: filters.well_no }), '使用记录.xlsx');
+        ElMessage.success('导出已开始，请查看浏览器下载');
+    }
+    catch (error) {
+        console.warn('导出失败', error);
+    }
 }
 </script>
 

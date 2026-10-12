@@ -1,164 +1,147 @@
-<script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
-
-import {
-  createConsumable,
-  importConsumables,
-  issueConsumable,
-  listConsumables,
-  updateConsumable,
-  type ConsumablePayload,
-} from '@/api/consumables'
-import { downloadExcel } from '@/api/export'
-import { usePagedList } from '@/composables/usePagedList'
-import DataTable from '@/components/DataTable.vue'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import type { Consumable, ImportSummary, TableColumn } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const columns: TableColumn[] = [
-  { key: 'part_no', label: '部件号', width: 150 },
-  { key: 'description', label: '中文描述', minWidth: 180, tooltip: true },
-  { key: 'quantity', label: '库存', width: 100, align: 'right' },
-  { key: 'safety_stock', label: '安全库存', width: 100, align: 'right' },
-  { key: 'unit', label: '单位', width: 80, align: 'center' },
-  { key: 'remark', label: '备注', minWidth: 150, tooltip: true },
-  { key: 'updated_at', label: '更新时间', width: 170, defaultHidden: true },
-  { key: 'actions', label: '操作', width: 150, fixed: 'right', align: 'center' },
-]
-
-const filters = reactive<{ keyword: string; low_stock_only: boolean }>({
-  keyword: '',
-  low_stock_only: false,
-})
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<Consumable, typeof filters>(filters, listConsumables)
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
+<script setup>
+import { ElMessage } from 'element-plus';
+import { onMounted, reactive, ref } from 'vue';
+import { createConsumable, importConsumables, issueConsumable, listConsumables, updateConsumable, } from '@/api/consumables';
+import { downloadExcel } from '@/api/export';
+import { usePagedList } from '@/composables/usePagedList';
+import DataTable from '@/components/DataTable.vue';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const columns = [
+    { key: 'part_no', label: '部件号', width: 150 },
+    { key: 'description', label: '中文描述', minWidth: 180, tooltip: true },
+    { key: 'quantity', label: '库存', width: 100, align: 'right' },
+    { key: 'safety_stock', label: '安全库存', width: 100, align: 'right' },
+    { key: 'unit', label: '单位', width: 80, align: 'center' },
+    { key: 'remark', label: '备注', minWidth: 150, tooltip: true },
+    { key: 'updated_at', label: '更新时间', width: 170, defaultHidden: true },
+    { key: 'actions', label: '操作', width: 150, fixed: 'right', align: 'center' },
+];
+const filters = reactive({
+    keyword: '',
+    low_stock_only: false,
+});
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(filters, listConsumables);
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-const dialogVisible = ref(false)
-const issueVisible = ref(false)
-const submitting = ref(false)
-const editingId = ref<number | null>(null)
-const importSummary = ref<ImportSummary | null>(null)
-
-const form = reactive<ConsumablePayload>({
-  part_no: '',
-  description: '',
-  quantity: 0,
-  safety_stock: 0,
-  unit: '',
-  remark: '',
-})
-const issueForm = reactive<{ consumable: Consumable | null; quantity: number; remark: string }>({
-  consumable: null,
-  quantity: 1,
-  remark: '',
-})
-
+const dialogVisible = ref(false);
+const issueVisible = ref(false);
+const submitting = ref(false);
+const editingId = ref(null);
+const importSummary = ref(null);
+const form = reactive({
+    part_no: '',
+    description: '',
+    quantity: 0,
+    safety_stock: 0,
+    unit: '',
+    remark: '',
+});
+const issueForm = reactive({
+    consumable: null,
+    quantity: 1,
+    remark: '',
+});
 onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  await load()
-})
-
-function openCreate(): void {
-  editingId.value = null
-  Object.assign(form, { part_no: '', description: '', quantity: 0, safety_stock: 0, unit: '', remark: '' })
-  dialogVisible.value = true
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    await load();
+});
+function openCreate() {
+    editingId.value = null;
+    Object.assign(form, { part_no: '', description: '', quantity: 0, safety_stock: 0, unit: '', remark: '' });
+    dialogVisible.value = true;
 }
-
-function openEdit(row: Consumable): void {
-  editingId.value = row.id
-  Object.assign(form, {
-    part_no: row.part_no,
-    description: row.description,
-    quantity: row.quantity,
-    safety_stock: row.safety_stock,
-    unit: row.unit,
-    remark: row.remark,
-  })
-  dialogVisible.value = true
+function openEdit(row) {
+    editingId.value = row.id;
+    Object.assign(form, {
+        part_no: row.part_no,
+        description: row.description,
+        quantity: row.quantity,
+        safety_stock: row.safety_stock,
+        unit: row.unit,
+        remark: row.remark,
+    });
+    dialogVisible.value = true;
 }
-
-async function submit(): Promise<void> {
-  if (!form.part_no || !form.description) {
-    ElMessage.warning('部件号与中文描述必填')
-    return
-  }
-  submitting.value = true
-  try {
-    if (editingId.value === null) {
-      await createConsumable({ ...form })
-      ElMessage.success('耗材已新增')
-    } else {
-      await updateConsumable(editingId.value, {
-        description: form.description,
-        safety_stock: form.safety_stock,
-        unit: form.unit,
-        remark: form.remark,
-      })
-      ElMessage.success('耗材已保存')
+async function submit() {
+    if (!form.part_no || !form.description) {
+        ElMessage.warning('部件号与中文描述必填');
+        return;
     }
-    dialogVisible.value = false
-    await load()
-  } catch (error) {
-    console.warn('保存耗材失败', error)
-  } finally {
-    submitting.value = false
-  }
+    submitting.value = true;
+    try {
+        if (editingId.value === null) {
+            await createConsumable({ ...form });
+            ElMessage.success('耗材已新增');
+        }
+        else {
+            await updateConsumable(editingId.value, {
+                description: form.description,
+                safety_stock: form.safety_stock,
+                unit: form.unit,
+                remark: form.remark,
+            });
+            ElMessage.success('耗材已保存');
+        }
+        dialogVisible.value = false;
+        await load();
+    }
+    catch (error) {
+        console.warn('保存耗材失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-function openIssue(row: Consumable): void {
-  issueForm.consumable = row
-  issueForm.quantity = 1
-  issueForm.remark = ''
-  issueVisible.value = true
+function openIssue(row) {
+    issueForm.consumable = row;
+    issueForm.quantity = 1;
+    issueForm.remark = '';
+    issueVisible.value = true;
 }
-
-async function submitIssue(): Promise<void> {
-  if (!issueForm.consumable) {
-    return
-  }
-  submitting.value = true
-  try {
-    await issueConsumable(issueForm.consumable.id, issueForm.quantity, issueForm.remark || null)
-    ElMessage.success(`已领用 ${issueForm.quantity}${issueForm.consumable.unit ?? ''}，库存已扣减`)
-    issueVisible.value = false
-    await load()
-  } catch (error) {
-    console.warn('领用失败', error)
-  } finally {
-    submitting.value = false
-  }
+async function submitIssue() {
+    if (!issueForm.consumable) {
+        return;
+    }
+    submitting.value = true;
+    try {
+        await issueConsumable(issueForm.consumable.id, issueForm.quantity, issueForm.remark || null);
+        ElMessage.success(`已领用 ${issueForm.quantity}${issueForm.consumable.unit ?? ''}，库存已扣减`);
+        issueVisible.value = false;
+        await load();
+    }
+    catch (error) {
+        console.warn('领用失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-async function handleImport(file: File): Promise<boolean> {
-  try {
-    const summary = await importConsumables(file)
-    importSummary.value = summary
-    ElMessage.success(`导入完成：新增 ${summary.created}，更新 ${summary.updated}，失败 ${summary.failed}`)
-    await load()
-  } catch (error) {
-    console.warn('导入失败', error)
-  }
-  return false // 阻止组件自身的上传行为，已用自定义请求提交
+async function handleImport(file) {
+    try {
+        const summary = await importConsumables(file);
+        importSummary.value = summary;
+        ElMessage.success(`导入完成：新增 ${summary.created}，更新 ${summary.updated}，失败 ${summary.failed}`);
+        await load();
+    }
+    catch (error) {
+        console.warn('导入失败', error);
+    }
+    return false; // 阻止组件自身的上传行为，已用自定义请求提交
 }
-
-async function exportUsages(): Promise<void> {
-  try {
-    await downloadExcel('/consumables/usages/export', {}, '耗材领用明细.xlsx')
-    ElMessage.success('导出已开始，请查看浏览器下载')
-  } catch (error) {
-    console.warn('导出失败', error)
-  }
+async function exportUsages() {
+    try {
+        await downloadExcel('/consumables/usages/export', {}, '耗材领用明细.xlsx');
+        ElMessage.success('导出已开始，请查看浏览器下载');
+    }
+    catch (error) {
+        console.warn('导出失败', error);
+    }
 }
 </script>
 

@@ -1,44 +1,40 @@
-<script setup lang="ts">
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-
-import { useUserStore } from '@/store/user'
-
-const router = useRouter()
-const route = useRoute()
-const store = useUserStore()
-
-const formRef = ref<FormInstance>()
-const loading = ref(false)
-const form = reactive({ username: '', password: '' })
-
-const rules: FormRules = {
-  username: [{ required: true, message: '请输入登录名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-}
-
-async function submit(): Promise<void> {
-  if (!formRef.value) {
-    return
-  }
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-
-  loading.value = true
-  try {
-    await store.login(form.username, form.password)
-    ElMessage.success('登录成功')
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-    await router.replace(redirect)
-  } catch (error) {
-    // 失败提示已由请求封装统一弹出，这里只保留一行日志便于排查
-    console.warn('登录失败', error)
-  } finally {
-    loading.value = false
-  }
+<script setup>
+import { ElMessage } from 'element-plus';
+import { reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useUserStore } from '@/store/user';
+const router = useRouter();
+const route = useRoute();
+const store = useUserStore();
+const formRef = ref();
+const loading = ref(false);
+const form = reactive({ username: '', password: '' });
+const rules = {
+    username: [{ required: true, message: '请输入登录名', trigger: 'blur' }],
+    password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+};
+async function submit() {
+    if (!formRef.value) {
+        return;
+    }
+    const valid = await formRef.value.validate().catch(() => false);
+    if (!valid) {
+        return;
+    }
+    loading.value = true;
+    try {
+        await store.login(form.username, form.password);
+        ElMessage.success('登录成功');
+        const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
+        await router.replace(redirect);
+    }
+    catch (error) {
+        // 失败提示已由请求封装统一弹出，这里只保留一行日志便于排查
+        console.warn('登录失败', error);
+    }
+    finally {
+        loading.value = false;
+    }
 }
 </script>
 

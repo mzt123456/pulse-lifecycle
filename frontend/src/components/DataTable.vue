@@ -1,53 +1,41 @@
-<script setup lang="ts">
-import { computed } from 'vue'
-
-import { usePreferencesStore } from '@/store/preferences'
-import type { TableColumn } from '@/types'
-
-const props = defineProps<{
-  tableKey: string
-  columns: TableColumn[]
-  data: unknown[]
-  loading?: boolean
-  stripe?: boolean
-}>()
-
-const store = usePreferencesStore()
-
-const allKeys = computed(() => props.columns.map((column) => column.key))
-const defaultKeys = computed(() =>
-  props.columns.filter((column) => !column.defaultHidden).map((column) => column.key),
-)
-const order = computed(() => store.columnsFor(props.tableKey, defaultKeys.value, allKeys.value))
-const visibleColumns = computed(() =>
-  order.value
+<script setup>
+import { computed } from 'vue';
+import { usePreferencesStore } from '@/store/preferences';
+// 运行期 props：列定义、数据与加载状态；stripe 默认开启，保持与原实现一致的观感
+const props = defineProps({
+    tableKey: { type: String, required: true },
+    columns: { type: Array, required: true },
+    data: { type: Array, required: true },
+    loading: { type: Boolean, default: false },
+    stripe: { type: Boolean, default: true },
+});
+const store = usePreferencesStore();
+const allKeys = computed(() => props.columns.map((column) => column.key));
+const defaultKeys = computed(() => props.columns.filter((column) => !column.defaultHidden).map((column) => column.key));
+const order = computed(() => store.columnsFor(props.tableKey, defaultKeys.value, allKeys.value));
+const visibleColumns = computed(() => order.value
     .map((key) => props.columns.find((column) => column.key === key))
-    .filter((column): column is TableColumn => Boolean(column)),
-)
-const hiddenColumns = computed(() =>
-  props.columns.filter((column) => !order.value.includes(column.key)),
-)
-
-async function toggleColumn(key: string, checked: boolean): Promise<void> {
-  const next = checked
-    ? [...order.value, key]
-    : order.value.filter((item) => item !== key)
-  await store.setColumns(props.tableKey, next)
+    .filter((column) => Boolean(column)));
+const hiddenColumns = computed(() => props.columns.filter((column) => !order.value.includes(column.key)));
+async function toggleColumn(key, checked) {
+    const next = checked
+        ? [...order.value, key]
+        : order.value.filter((item) => item !== key);
+    await store.setColumns(props.tableKey, next);
 }
-
-async function moveColumn(key: string, delta: number): Promise<void> {
-  const next = [...order.value]
-  const index = next.indexOf(key)
-  const target = index + delta
-  if (index < 0 || target < 0 || target >= next.length) {
-    return
-  }
-  ;[next[index], next[target]] = [next[target], next[index]]
-  await store.setColumns(props.tableKey, next)
+async function moveColumn(key, delta) {
+    const next = [...order.value];
+    const index = next.indexOf(key);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= next.length) {
+        return;
+    }
+    ;
+    [next[index], next[target]] = [next[target], next[index]];
+    await store.setColumns(props.tableKey, next);
 }
-
-async function resetColumns(): Promise<void> {
-  await store.setColumns(props.tableKey, defaultKeys.value)
+async function resetColumns() {
+    await store.setColumns(props.tableKey, defaultKeys.value);
 }
 </script>
 
@@ -91,7 +79,7 @@ async function resetColumns(): Promise<void> {
       </el-popover>
     </div>
 
-    <el-table v-loading="loading" :data="data" border :stripe="stripe ?? true">
+    <el-table v-loading="loading" :data="data" border :stripe="stripe">
       <el-table-column
         v-for="column in visibleColumns"
         :key="column.key"

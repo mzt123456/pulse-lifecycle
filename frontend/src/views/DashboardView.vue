@@ -1,38 +1,33 @@
-<script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-
-import { getDashboard, type DashboardData } from '@/api/report'
-import { useUserStore } from '@/store/user'
-
-const store = useUserStore()
-const router = useRouter()
-
-const permissionCount = computed(() => store.user?.permissions.length ?? 0)
-const summary = ref<DashboardData | null>(null)
-const loading = ref(false)
-
-const shortcuts = computed(() =>
-  [
+<script setup>
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { getDashboard } from '@/api/report';
+import { useUserStore } from '@/store/user';
+const store = useUserStore();
+const router = useRouter();
+const permissionCount = computed(() => store.user?.permissions.length ?? 0);
+const summary = ref(null);
+const loading = ref(false);
+const shortcuts = computed(() => [
     { title: '设备台账', path: '/equipment', permission: 'equipment.view' },
     { title: '使用记录', path: '/operations', permission: 'well_operation.view' },
     { title: '维保工单', path: '/maintenance', permission: 'maintenance.view' },
     { title: '故障记录', path: '/faults', permission: 'fault.view' },
     { title: '耗材管理', path: '/consumables', permission: 'consumable.view' },
     { title: '报表中心', path: '/reports', permission: 'report.view' },
-  ].filter((item) => store.has(item.permission)),
-)
-
+].filter((item) => store.has(item.permission)));
 onMounted(async () => {
-  loading.value = true
-  try {
-    summary.value = await getDashboard()
-  } catch (error) {
-    console.warn('加载总览数据失败', error)
-  } finally {
-    loading.value = false
-  }
-})
+    loading.value = true;
+    try {
+        summary.value = await getDashboard();
+    }
+    catch (error) {
+        console.warn('加载总览数据失败', error);
+    }
+    finally {
+        loading.value = false;
+    }
+});
 </script>
 
 <template>

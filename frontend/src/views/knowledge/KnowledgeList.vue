@@ -1,168 +1,138 @@
-<script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
-
-import {
-  createKnowledgeText,
-  deleteKnowledgeDocument,
-  getKnowledgeDocument,
-  getKnowledgeStats,
-  listKnowledgeDocuments,
-  uploadKnowledgeDocument,
-  type KnowledgeDocument,
-  type KnowledgeDocumentDetail,
-  type KnowledgeStats,
-  type KnowledgeQuery,
-} from '@/api/knowledge'
-import DataTable from '@/components/DataTable.vue'
-import { usePagedList } from '@/composables/usePagedList'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import type { TableColumn } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const columns: TableColumn[] = [
-  { key: 'title', label: '标题', minWidth: 200, tooltip: true },
-  { key: 'source_type', label: '来源', width: 90, align: 'center' },
-  { key: 'file_name', label: '文件名', minWidth: 160, tooltip: true },
-  { key: 'chunk_count', label: '分块数', width: 90, align: 'right' },
-  { key: 'char_count', label: '字数', width: 90, align: 'right' },
-  { key: 'status', label: '解析状态', width: 110, align: 'center' },
-  { key: 'created_by_name', label: '录入人', width: 110 },
-  { key: 'created_at', label: '录入时间', width: 170 },
-  { key: 'actions', label: '操作', width: 130, fixed: 'right', align: 'center' },
-]
-
-const filters = reactive<{ status?: string }>({ status: undefined })
-const query = reactive<KnowledgeQuery>({ keyword: '', status: '' })
-const keyword = ref('')
-
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<KnowledgeDocument, typeof query>(query, listKnowledgeDocuments)
-
-const stats = ref<KnowledgeStats>({ documents: 0, chunks: 0, failed: 0, characters: 0 })
-
-const detailVisible = ref(false)
-const detail = ref<KnowledgeDocumentDetail | null>(null)
-const detailLoading = ref(false)
-
-const pasteVisible = ref(false)
-const submitting = ref(false)
-const uploading = ref(false)
-const pasteForm = reactive({ title: '', content: '' })
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
+<script setup>
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { onMounted, reactive, ref } from 'vue';
+import { createKnowledgeText, deleteKnowledgeDocument, getKnowledgeDocument, getKnowledgeStats, listKnowledgeDocuments, uploadKnowledgeDocument, } from '@/api/knowledge';
+import DataTable from '@/components/DataTable.vue';
+import { usePagedList } from '@/composables/usePagedList';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const columns = [
+    { key: 'title', label: '标题', minWidth: 200, tooltip: true },
+    { key: 'source_type', label: '来源', width: 90, align: 'center' },
+    { key: 'file_name', label: '文件名', minWidth: 160, tooltip: true },
+    { key: 'chunk_count', label: '分块数', width: 90, align: 'right' },
+    { key: 'char_count', label: '字数', width: 90, align: 'right' },
+    { key: 'status', label: '解析状态', width: 110, align: 'center' },
+    { key: 'created_by_name', label: '录入人', width: 110 },
+    { key: 'created_at', label: '录入时间', width: 170 },
+    { key: 'actions', label: '操作', width: 130, fixed: 'right', align: 'center' },
+];
+const filters = reactive({ status: undefined });
+const query = reactive({ keyword: '', status: '' });
+const keyword = ref('');
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(query, listKnowledgeDocuments);
+const stats = ref({ documents: 0, chunks: 0, failed: 0, characters: 0 });
+const detailVisible = ref(false);
+const detail = ref(null);
+const detailLoading = ref(false);
+const pasteVisible = ref(false);
+const submitting = ref(false);
+const uploading = ref(false);
+const pasteForm = reactive({ title: '', content: '' });
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-async function loadStats(): Promise<void> {
-  stats.value = await getKnowledgeStats()
+async function loadStats() {
+    stats.value = await getKnowledgeStats();
 }
-
-async function refresh(): Promise<void> {
-  await Promise.all([load(), loadStats()])
+async function refresh() {
+    await Promise.all([load(), loadStats()]);
 }
-
-async function applyFilters(): Promise<void> {
-  query.keyword = keyword.value.trim()
-  query.status = filters.status ?? ''
-  await search()
+async function applyFilters() {
+    query.keyword = keyword.value.trim();
+    query.status = filters.status ?? '';
+    await search();
 }
-
-async function resetFilters(): Promise<void> {
-  keyword.value = ''
-  filters.status = undefined
-  await applyFilters()
+async function resetFilters() {
+    keyword.value = '';
+    filters.status = undefined;
+    await applyFilters();
 }
-
 onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  await refresh()
-})
-
-async function showDetail(row: KnowledgeDocument): Promise<void> {
-  detailVisible.value = true
-  detailLoading.value = true
-  detail.value = null
-  try {
-    detail.value = await getKnowledgeDocument(row.id)
-  } finally {
-    detailLoading.value = false
-  }
-}
-
-async function handleUpload(file: File): Promise<boolean> {
-  uploading.value = true
-  try {
-    const document = await uploadKnowledgeDocument(file)
-    if (document.status === 'failed') {
-      // 解析失败也入库了，把原因直接告诉用户，避免以为上传成功
-      ElMessage.warning(`已记录但未解析成功：${document.error ?? '未提取到正文'}`)
-    } else {
-      ElMessage.success(`已入库，切成 ${document.chunk_count} 个分块`)
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    await refresh();
+});
+async function showDetail(row) {
+    detailVisible.value = true;
+    detailLoading.value = true;
+    detail.value = null;
+    try {
+        detail.value = await getKnowledgeDocument(row.id);
     }
-    await refresh()
-  } catch (error) {
-    console.warn('上传知识库文档失败', error)
-  } finally {
-    uploading.value = false
-  }
-  return false // 已用自定义请求提交，阻止 el-upload 自身行为
+    finally {
+        detailLoading.value = false;
+    }
 }
-
-function openPaste(): void {
-  pasteForm.title = ''
-  pasteForm.content = ''
-  pasteVisible.value = true
+async function handleUpload(file) {
+    uploading.value = true;
+    try {
+        const document = await uploadKnowledgeDocument(file);
+        if (document.status === 'failed') {
+            // 解析失败也入库了，把原因直接告诉用户，避免以为上传成功
+            ElMessage.warning(`已记录但未解析成功：${document.error ?? '未提取到正文'}`);
+        }
+        else {
+            ElMessage.success(`已入库，切成 ${document.chunk_count} 个分块`);
+        }
+        await refresh();
+    }
+    catch (error) {
+        console.warn('上传知识库文档失败', error);
+    }
+    finally {
+        uploading.value = false;
+    }
+    return false; // 已用自定义请求提交，阻止 el-upload 自身行为
 }
-
-async function submitPaste(): Promise<void> {
-  if (!pasteForm.title.trim() || !pasteForm.content.trim()) {
-    ElMessage.warning('标题与正文都不能为空')
-    return
-  }
-  submitting.value = true
-  try {
-    const document = await createKnowledgeText({
-      title: pasteForm.title.trim(),
-      content: pasteForm.content,
-    })
-    ElMessage.success(`已入库，切成 ${document.chunk_count} 个分块`)
-    pasteVisible.value = false
-    await refresh()
-  } catch (error) {
-    console.warn('粘贴文本入库失败', error)
-  } finally {
-    submitting.value = false
-  }
+function openPaste() {
+    pasteForm.title = '';
+    pasteForm.content = '';
+    pasteVisible.value = true;
 }
-
-async function handleDelete(row: KnowledgeDocument): Promise<void> {
-  try {
-    await ElMessageBox.confirm(
-      `确定删除《${row.title}》吗？删除后该文档不再参与检索，记录会保留在审计日志里。`,
-      '删除知识库文档',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  await deleteKnowledgeDocument(row.id)
-  ElMessage.success('已删除')
-  await refresh()
+async function submitPaste() {
+    if (!pasteForm.title.trim() || !pasteForm.content.trim()) {
+        ElMessage.warning('标题与正文都不能为空');
+        return;
+    }
+    submitting.value = true;
+    try {
+        const document = await createKnowledgeText({
+            title: pasteForm.title.trim(),
+            content: pasteForm.content,
+        });
+        ElMessage.success(`已入库，切成 ${document.chunk_count} 个分块`);
+        pasteVisible.value = false;
+        await refresh();
+    }
+    catch (error) {
+        console.warn('粘贴文本入库失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-function formatSize(size: number | null): string {
-  if (!size) {
-    return '-'
-  }
-  return size < 1024 * 1024
-    ? `${(size / 1024).toFixed(1)} KB`
-    : `${(size / 1024 / 1024).toFixed(1)} MB`
+async function handleDelete(row) {
+    try {
+        await ElMessageBox.confirm(`确定删除《${row.title}》吗？删除后该文档不再参与检索，记录会保留在审计日志里。`, '删除知识库文档', { type: 'warning' });
+    }
+    catch {
+        return;
+    }
+    await deleteKnowledgeDocument(row.id);
+    ElMessage.success('已删除');
+    await refresh();
+}
+function formatSize(size) {
+    if (!size) {
+        return '-';
+    }
+    return size < 1024 * 1024
+        ? `${(size / 1024).toFixed(1)} KB`
+        : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 </script>
 

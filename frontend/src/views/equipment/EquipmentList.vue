@@ -1,145 +1,128 @@
-<script setup lang="ts">
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
-
-import { getDictItems } from '@/api/dict'
-import {
-  createEquipment,
-  deleteEquipment,
-  listEquipment,
-  updateEquipment,
-  type EquipmentPayload,
-} from '@/api/equipment'
-import { usePagedList } from '@/composables/usePagedList'
-import DataTable from '@/components/DataTable.vue'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import type { Equipment, TableColumn } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const columns: TableColumn[] = [
-  { key: 'equipment_no', label: '脉冲编号', width: 150 },
-  { key: 'model', label: '型号', minWidth: 140, tooltip: true },
-  { key: 'status', label: '状态', width: 90, align: 'center' },
-  { key: 'total_run_hours', label: '累计时长(h)', width: 110, align: 'right' },
-  { key: 'total_run_count', label: '累计次数', width: 90, align: 'right' },
-  { key: 'company', label: '关联公司', minWidth: 140, tooltip: true },
-  { key: 'last_maintenance_at', label: '最近维保', width: 170 },
-  { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
-]
-
-const EMPTY_FORM: EquipmentPayload = {
-  equipment_no: '',
-  model: '',
-  status: '待命',
-  factory_date: null,
-  temperature_grade: '',
-  pressure_grade: '',
-  valve_shell_size: '',
-  company: '',
-  contact_name: '',
-  contact_phone: '',
-  remark: '',
+<script setup>
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { onMounted, reactive, ref } from 'vue';
+import { getDictItems } from '@/api/dict';
+import { createEquipment, deleteEquipment, listEquipment, updateEquipment, } from '@/api/equipment';
+import { usePagedList } from '@/composables/usePagedList';
+import DataTable from '@/components/DataTable.vue';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const columns = [
+    { key: 'equipment_no', label: '脉冲编号', width: 150 },
+    { key: 'model', label: '型号', minWidth: 140, tooltip: true },
+    { key: 'status', label: '状态', width: 90, align: 'center' },
+    { key: 'total_run_hours', label: '累计时长(h)', width: 110, align: 'right' },
+    { key: 'total_run_count', label: '累计次数', width: 90, align: 'right' },
+    { key: 'company', label: '关联公司', minWidth: 140, tooltip: true },
+    { key: 'last_maintenance_at', label: '最近维保', width: 170 },
+    { key: 'actions', label: '操作', width: 140, fixed: 'right', align: 'center' },
+];
+const EMPTY_FORM = {
+    equipment_no: '',
+    model: '',
+    status: '待命',
+    factory_date: null,
+    temperature_grade: '',
+    pressure_grade: '',
+    valve_shell_size: '',
+    company: '',
+    contact_name: '',
+    contact_phone: '',
+    remark: '',
+};
+const filters = reactive({ keyword: '', status: '' });
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(filters, listEquipment);
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-const filters = reactive({ keyword: '', status: '' })
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<Equipment, typeof filters>(filters, listEquipment)
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
-}
-
-const statusOptions = ref<string[]>([])
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const editingId = ref<number | null>(null)
-const editingVersion = ref(0)
-const formRef = ref<FormInstance>()
-const form = reactive<EquipmentPayload>({ ...EMPTY_FORM })
-
-const rules: FormRules = {
-  equipment_no: [{ required: true, message: '请输入脉冲编号', trigger: 'blur' }],
-  status: [{ required: true, message: '请选择状态', trigger: 'change' }],
-}
-
+const statusOptions = ref([]);
+const dialogVisible = ref(false);
+const submitting = ref(false);
+const editingId = ref(null);
+const editingVersion = ref(0);
+const formRef = ref();
+const form = reactive({ ...EMPTY_FORM });
+const rules = {
+    equipment_no: [{ required: true, message: '请输入脉冲编号', trigger: 'blur' }],
+    status: [{ required: true, message: '请选择状态', trigger: 'change' }],
+};
 onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  const dict = await getDictItems()
-  statusOptions.value = dict['设备状态'] ?? []
-  await load()
-})
-
-function openCreate(): void {
-  editingId.value = null
-  editingVersion.value = 0
-  Object.assign(form, EMPTY_FORM)
-  dialogVisible.value = true
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    const dict = await getDictItems();
+    statusOptions.value = dict['设备状态'] ?? [];
+    await load();
+});
+function openCreate() {
+    editingId.value = null;
+    editingVersion.value = 0;
+    Object.assign(form, EMPTY_FORM);
+    dialogVisible.value = true;
 }
-
-function openEdit(row: Equipment): void {
-  editingId.value = row.id
-  editingVersion.value = row.version
-  Object.assign(form, {
-    equipment_no: row.equipment_no,
-    model: row.model,
-    status: row.status,
-    factory_date: row.factory_date,
-    temperature_grade: row.temperature_grade,
-    pressure_grade: row.pressure_grade,
-    valve_shell_size: row.valve_shell_size,
-    company: row.company,
-    contact_name: row.contact_name,
-    contact_phone: row.contact_phone,
-    remark: row.remark,
-  })
-  dialogVisible.value = true
+function openEdit(row) {
+    editingId.value = row.id;
+    editingVersion.value = row.version;
+    Object.assign(form, {
+        equipment_no: row.equipment_no,
+        model: row.model,
+        status: row.status,
+        factory_date: row.factory_date,
+        temperature_grade: row.temperature_grade,
+        pressure_grade: row.pressure_grade,
+        valve_shell_size: row.valve_shell_size,
+        company: row.company,
+        contact_name: row.contact_name,
+        contact_phone: row.contact_phone,
+        remark: row.remark,
+    });
+    dialogVisible.value = true;
 }
-
-async function submit(): Promise<void> {
-  if (!formRef.value) {
-    return
-  }
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-
-  submitting.value = true
-  try {
-    if (editingId.value === null) {
-      await createEquipment({ ...form })
-      ElMessage.success('设备已新增')
-    } else {
-      await updateEquipment(editingId.value, { ...form, version: editingVersion.value })
-      ElMessage.success('设备已保存')
+async function submit() {
+    if (!formRef.value) {
+        return;
     }
-    dialogVisible.value = false
-    await load()
-  } catch (error) {
-    console.warn('保存设备失败', error)
-  } finally {
-    submitting.value = false
-  }
+    const valid = await formRef.value.validate().catch(() => false);
+    if (!valid) {
+        return;
+    }
+    submitting.value = true;
+    try {
+        if (editingId.value === null) {
+            await createEquipment({ ...form });
+            ElMessage.success('设备已新增');
+        }
+        else {
+            await updateEquipment(editingId.value, { ...form, version: editingVersion.value });
+            ElMessage.success('设备已保存');
+        }
+        dialogVisible.value = false;
+        await load();
+    }
+    catch (error) {
+        console.warn('保存设备失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-async function remove(row: Equipment): Promise<void> {
-  try {
-    await ElMessageBox.confirm(`确定删除设备 ${row.equipment_no} 吗？`, '删除确认', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await deleteEquipment(row.id)
-    ElMessage.success('已删除')
-    await load()
-  } catch (error) {
-    console.warn('删除设备失败', error)
-  }
+async function remove(row) {
+    try {
+        await ElMessageBox.confirm(`确定删除设备 ${row.equipment_no} 吗？`, '删除确认', { type: 'warning' });
+    }
+    catch {
+        return;
+    }
+    try {
+        await deleteEquipment(row.id);
+        ElMessage.success('已删除');
+        await load();
+    }
+    catch (error) {
+        console.warn('删除设备失败', error);
+    }
 }
 </script>
 

@@ -1,69 +1,64 @@
-<script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { onMounted, ref, watch } from 'vue'
-
-import {
-  downloadAttachment,
-  listAttachments,
-  uploadAttachment,
-  type Attachment,
-} from '@/api/system'
-import { useUserStore } from '@/store/user'
-
-const props = defineProps<{ objectType: string; objectId: number }>()
-
-const store = useUserStore()
-const items = ref<Attachment[]>([])
-const loading = ref(false)
-const uploading = ref(false)
-
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    const data = await listAttachments({
-      object_type: props.objectType,
-      object_id: props.objectId,
-      page: 1,
-      page_size: 100,
-    })
-    items.value = data.items
-  } finally {
-    loading.value = false
-  }
+<script setup>
+import { ElMessage } from 'element-plus';
+import { onMounted, ref, watch } from 'vue';
+import { downloadAttachment, listAttachments, uploadAttachment, } from '@/api/system';
+import { useUserStore } from '@/store/user';
+// 运行期 props：附件挂在哪个业务对象上
+const props = defineProps({
+    objectType: { type: String, required: true },
+    objectId: { type: Number, required: true },
+});
+const store = useUserStore();
+const items = ref([]);
+const loading = ref(false);
+const uploading = ref(false);
+async function load() {
+    loading.value = true;
+    try {
+        const data = await listAttachments({
+            object_type: props.objectType,
+            object_id: props.objectId,
+            page: 1,
+            page_size: 100,
+        });
+        items.value = data.items;
+    }
+    finally {
+        loading.value = false;
+    }
 }
-
-onMounted(load)
-watch(() => props.objectId, load)
-
-async function handleUpload(file: File): Promise<boolean> {
-  uploading.value = true
-  try {
-    await uploadAttachment(file, props.objectType, props.objectId)
-    ElMessage.success('附件已上传')
-    await load()
-  } catch (error) {
-    console.warn('上传附件失败', error)
-  } finally {
-    uploading.value = false
-  }
-  return false // 已用自定义请求提交，阻止组件自身的上传行为
+onMounted(load);
+watch(() => props.objectId, load);
+async function handleUpload(file) {
+    uploading.value = true;
+    try {
+        await uploadAttachment(file, props.objectType, props.objectId);
+        ElMessage.success('附件已上传');
+        await load();
+    }
+    catch (error) {
+        console.warn('上传附件失败', error);
+    }
+    finally {
+        uploading.value = false;
+    }
+    return false; // 已用自定义请求提交，阻止组件自身的上传行为
 }
-
-async function handleDownload(item: Attachment): Promise<void> {
-  try {
-    await downloadAttachment(item.id, item.file_name)
-  } catch (error) {
-    console.warn('下载附件失败', error)
-  }
+async function handleDownload(item) {
+    try {
+        await downloadAttachment(item.id, item.file_name);
+    }
+    catch (error) {
+        console.warn('下载附件失败', error);
+    }
 }
-
-function formatSize(size: number | null): string {
-  if (!size) {
-    return '-'
-  }
-  return size < 1024 * 1024
-    ? `${(size / 1024).toFixed(1)} KB`
-    : `${(size / 1024 / 1024).toFixed(1)} MB`
+function formatSize(size) {
+    if (!size) {
+        return '-';
+    }
+    return size < 1024 * 1024
+        ? `${(size / 1024).toFixed(1)} KB`
+        : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 </script>
 

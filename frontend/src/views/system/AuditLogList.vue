@@ -1,42 +1,29 @@
-<script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-
-import { listAuditLogs, type AuditLog } from '@/api/system'
-import { usePagedList } from '@/composables/usePagedList'
-
-const filters = reactive<{
-  action: string
-  object_type: string
-  range: [string, string] | null
-}>({ action: '', object_type: '', range: null })
-
-const query = reactive({ action: '', object_type: '', start: '', end: '' })
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<AuditLog, typeof query>(query, listAuditLogs)
-
-const detailVisible = ref(false)
-const currentDetail = ref('')
-
-onMounted(load)
-
-async function applyFilters(): Promise<void> {
-  query.action = filters.action
-  query.object_type = filters.object_type
-  query.start = filters.range?.[0] ?? ''
-  query.end = filters.range?.[1] ?? ''
-  await search()
+<script setup>
+import { onMounted, reactive, ref } from 'vue';
+import { listAuditLogs } from '@/api/system';
+import { usePagedList } from '@/composables/usePagedList';
+const filters = reactive({ action: '', object_type: '', range: null });
+const query = reactive({ action: '', object_type: '', start: '', end: '' });
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(query, listAuditLogs);
+const detailVisible = ref(false);
+const currentDetail = ref('');
+onMounted(load);
+async function applyFilters() {
+    query.action = filters.action;
+    query.object_type = filters.object_type;
+    query.start = filters.range?.[0] ?? '';
+    query.end = filters.range?.[1] ?? '';
+    await search();
 }
-
-async function reset(): Promise<void> {
-  filters.action = ''
-  filters.object_type = ''
-  filters.range = null
-  await applyFilters()
+async function reset() {
+    filters.action = '';
+    filters.object_type = '';
+    filters.range = null;
+    await applyFilters();
 }
-
-function showDetail(row: AuditLog): void {
-  currentDetail.value = row.detail ?? '无详情'
-  detailVisible.value = true
+function showDetail(row) {
+    currentDetail.value = row.detail ?? '无详情';
+    detailVisible.value = true;
 }
 </script>
 

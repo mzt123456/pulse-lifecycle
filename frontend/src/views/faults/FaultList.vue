@@ -1,80 +1,45 @@
-<script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { onMounted, reactive, ref } from 'vue'
-
-import { getDictItems } from '@/api/dict'
-import { downloadExcel } from '@/api/export'
-import { listEquipment } from '@/api/equipment'
-import { createFault, listFaults, updateFault, type FaultPayload } from '@/api/faults'
-import { usePagedList } from '@/composables/usePagedList'
-import DataTable from '@/components/DataTable.vue'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import { compactParams } from '@/utils/params'
-import type { Equipment, FaultRecord, TableColumn } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-
-const columns: TableColumn[] = [
-  { key: 'equipment_no', label: '设备', width: 130 },
-  { key: 'occurred_at', label: '发生时间', width: 170 },
-  { key: 'position', label: '故障位置', width: 120, tooltip: true },
-  { key: 'fault_type', label: '故障类型', width: 120 },
-  { key: 'description', label: '现象描述', minWidth: 180, tooltip: true },
-  { key: 'cause', label: '原因分析', minWidth: 160, tooltip: true },
-  { key: 'solution', label: '解决方案', minWidth: 160, tooltip: true },
-  { key: 'status', label: '状态', width: 100, align: 'center' },
-  { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
-]
-
-const filters = reactive<{ equipment_id?: number; fault_type: string; status: string }>({
-  equipment_id: undefined,
-  fault_type: '',
-  status: '',
-})
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<FaultRecord, typeof filters>(filters, listFaults)
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
+<script setup>
+import { ElMessage } from 'element-plus';
+import { onMounted, reactive, ref } from 'vue';
+import { getDictItems } from '@/api/dict';
+import { downloadExcel } from '@/api/export';
+import { listEquipment } from '@/api/equipment';
+import { createFault, listFaults, updateFault } from '@/api/faults';
+import { usePagedList } from '@/composables/usePagedList';
+import DataTable from '@/components/DataTable.vue';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+import { compactParams } from '@/utils/params';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const columns = [
+    { key: 'equipment_no', label: '设备', width: 130 },
+    { key: 'occurred_at', label: '发生时间', width: 170 },
+    { key: 'position', label: '故障位置', width: 120, tooltip: true },
+    { key: 'fault_type', label: '故障类型', width: 120 },
+    { key: 'description', label: '现象描述', minWidth: 180, tooltip: true },
+    { key: 'cause', label: '原因分析', minWidth: 160, tooltip: true },
+    { key: 'solution', label: '解决方案', minWidth: 160, tooltip: true },
+    { key: 'status', label: '状态', width: 100, align: 'center' },
+    { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
+];
+const filters = reactive({
+    equipment_id: undefined,
+    fault_type: '',
+    status: '',
+});
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(filters, listFaults);
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-const equipmentOptions = ref<Equipment[]>([])
-const typeOptions = ref<string[]>([])
-const statusOptions = ref<string[]>([])
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const editingId = ref<number | null>(null)
-
-const form = reactive<FaultPayload>({
-  equipment_id: undefined,
-  occurred_at: null,
-  position: '',
-  fault_type: '',
-  description: '',
-  cause: '',
-  solution: '',
-  status: '待处理',
-})
-
-onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  const [dict, equipmentPage] = await Promise.all([
-    getDictItems(),
-    listEquipment({ page: 1, page_size: 100 }),
-  ])
-  typeOptions.value = dict['故障类型'] ?? []
-  statusOptions.value = dict['故障处理状态'] ?? []
-  equipmentOptions.value = equipmentPage.items
-  await load()
-})
-
-function openCreate(): void {
-  editingId.value = null
-  Object.assign(form, {
+const equipmentOptions = ref([]);
+const typeOptions = ref([]);
+const statusOptions = ref([]);
+const dialogVisible = ref(false);
+const submitting = ref(false);
+const editingId = ref(null);
+const form = reactive({
     equipment_id: undefined,
     occurred_at: null,
     position: '',
@@ -82,64 +47,85 @@ function openCreate(): void {
     description: '',
     cause: '',
     solution: '',
-    status: statusOptions.value[0] ?? '待处理',
-  })
-  dialogVisible.value = true
+    status: '待处理',
+});
+onMounted(async () => {
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    const [dict, equipmentPage] = await Promise.all([
+        getDictItems(),
+        listEquipment({ page: 1, page_size: 100 }),
+    ]);
+    typeOptions.value = dict['故障类型'] ?? [];
+    statusOptions.value = dict['故障处理状态'] ?? [];
+    equipmentOptions.value = equipmentPage.items;
+    await load();
+});
+function openCreate() {
+    editingId.value = null;
+    Object.assign(form, {
+        equipment_id: undefined,
+        occurred_at: null,
+        position: '',
+        fault_type: '',
+        description: '',
+        cause: '',
+        solution: '',
+        status: statusOptions.value[0] ?? '待处理',
+    });
+    dialogVisible.value = true;
 }
-
-function openEdit(row: FaultRecord): void {
-  editingId.value = row.id
-  Object.assign(form, {
-    equipment_id: row.equipment_id,
-    occurred_at: row.occurred_at,
-    position: row.position,
-    fault_type: row.fault_type,
-    description: row.description,
-    cause: row.cause,
-    solution: row.solution,
-    status: row.status,
-  })
-  dialogVisible.value = true
+function openEdit(row) {
+    editingId.value = row.id;
+    Object.assign(form, {
+        equipment_id: row.equipment_id,
+        occurred_at: row.occurred_at,
+        position: row.position,
+        fault_type: row.fault_type,
+        description: row.description,
+        cause: row.cause,
+        solution: row.solution,
+        status: row.status,
+    });
+    dialogVisible.value = true;
 }
-
-async function submit(): Promise<void> {
-  if (!form.equipment_id) {
-    ElMessage.warning('请选择关联设备')
-    return
-  }
-  submitting.value = true
-  try {
-    if (editingId.value === null) {
-      await createFault({ ...form })
-      ElMessage.success('故障记录已新增')
-    } else {
-      await updateFault(editingId.value, { ...form })
-      ElMessage.success('故障记录已保存')
+async function submit() {
+    if (!form.equipment_id) {
+        ElMessage.warning('请选择关联设备');
+        return;
     }
-    dialogVisible.value = false
-    await load()
-  } catch (error) {
-    console.warn('保存故障记录失败', error)
-  } finally {
-    submitting.value = false
-  }
+    submitting.value = true;
+    try {
+        if (editingId.value === null) {
+            await createFault({ ...form });
+            ElMessage.success('故障记录已新增');
+        }
+        else {
+            await updateFault(editingId.value, { ...form });
+            ElMessage.success('故障记录已保存');
+        }
+        dialogVisible.value = false;
+        await load();
+    }
+    catch (error) {
+        console.warn('保存故障记录失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-async function exportExcel(): Promise<void> {
-  try {
-    await downloadExcel(
-      '/fault-records/export',
-      compactParams({
-        equipment_id: filters.equipment_id,
-        fault_type: filters.fault_type,
-        status: filters.status,
-      }),
-      '故障记录.xlsx',
-    )
-    ElMessage.success('导出已开始，请查看浏览器下载')
-  } catch (error) {
-    console.warn('导出失败', error)
-  }
+async function exportExcel() {
+    try {
+        await downloadExcel('/fault-records/export', compactParams({
+            equipment_id: filters.equipment_id,
+            fault_type: filters.fault_type,
+            status: filters.status,
+        }), '故障记录.xlsx');
+        ElMessage.success('导出已开始，请查看浏览器下载');
+    }
+    catch (error) {
+        console.warn('导出失败', error);
+    }
 }
 </script>
 

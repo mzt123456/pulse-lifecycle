@@ -1,200 +1,168 @@
-<script setup lang="ts">
-import { ElMessage } from 'element-plus'
-import { computed, onMounted, ref } from 'vue'
-
-import {
-  askQuestion,
-  diagnoseFault,
-  forgetConversation,
-  getCorpusStats,
-  type AskTurn,
-  type AskResult,
-  type CorpusStats,
-  type DiagnosisResult,
-} from '@/api/ai'
-import { getDictItems } from '@/api/dict'
-import { listEquipment } from '@/api/equipment'
-import MarkdownText from '@/components/MarkdownText.vue'
-import { useUserStore } from '@/store/user'
-import type { Equipment } from '@/types'
-
-type Mode = 'diagnosis' | 'ask'
-
+<script setup>
+import { ElMessage } from 'element-plus';
+import { computed, onMounted, ref } from 'vue';
+import { askQuestion, diagnoseFault, forgetConversation, getCorpusStats, } from '@/api/ai';
+import { getDictItems } from '@/api/dict';
+import { listEquipment } from '@/api/equipment';
+import MarkdownText from '@/components/MarkdownText.vue';
+import { useUserStore } from '@/store/user';
 /** 会话 ID 存在 sessionStorage：同一个标签页刷新还能续上，关掉标签页就重新开始 */
-const CONVERSATION_KEY = 'pulse-ai-conversation'
-
-interface AssistantEntry {
-  id: number
-  mode: Mode
-  question: string
-  askedAt: string
-  diagnosis?: DiagnosisResult
-  ask?: AskResult
-  error?: string
-}
-
-const store = useUserStore()
-const canDiagnose = computed(() => store.has('fault.view'))
-const canSeeCorpus = computed(() => store.has('system.settings'))
-
-const mode = ref<Mode>('ask')
-const question = ref('')
-const submitting = ref(false)
-const entries = ref<AssistantEntry[]>([])
+const CONVERSATION_KEY = 'pulse-ai-conversation';
+const store = useUserStore();
+const canDiagnose = computed(() => store.has('fault.view'));
+const canSeeCorpus = computed(() => store.has('system.settings'));
+const mode = ref('ask');
+const question = ref('');
+const submitting = ref(false);
+const entries = ref([]);
 /** 服务端短期记忆的会话 ID：存在 sessionStorage 里，刷新页面还能接着聊，关掉标签页就忘 */
-const conversationId = ref<string | null>(sessionStorage.getItem(CONVERSATION_KEY))
-
-const equipmentId = ref<number | null>(null)
-const faultType = ref('')
-const instrumentType = ref('')
-const equipmentOptions = ref<Equipment[]>([])
-const faultTypes = ref<string[]>([])
-const instrumentTypes = ref<string[]>([])
-const corpus = ref<CorpusStats | null>(null)
-
-const EXAMPLES: Record<Mode, string[]> = {
-  diagnosis: [
-    '下井之后地面收不到脉冲信号，仪器不上电',
-    '下去之后声音不对，咔咔响，阀芯有点卡',
-    '压力保不住，一直往下掉',
-  ],
-  ask: [
-    '现在设备整体情况怎么样？有没有要注意的',
-    '耗材库存还剩多少，有没有低于安全库存的',
-    'PLT-DEMO-1 最近一次维保是什么时候，结果怎么样',
-  ],
-}
-
-const examples = computed(() => EXAMPLES[mode.value])
-
+const conversationId = ref(sessionStorage.getItem(CONVERSATION_KEY));
+const equipmentId = ref(null);
+const faultType = ref('');
+const instrumentType = ref('');
+const equipmentOptions = ref([]);
+const faultTypes = ref([]);
+const instrumentTypes = ref([]);
+const corpus = ref(null);
+const EXAMPLES = {
+    diagnosis: [
+        '下井之后地面收不到脉冲信号，仪器不上电',
+        '下去之后声音不对，咔咔响，阀芯有点卡',
+        '压力保不住，一直往下掉',
+    ],
+    ask: [
+        '现在设备整体情况怎么样？有没有要注意的',
+        '耗材库存还剩多少，有没有低于安全库存的',
+        'PLT-DEMO-1 最近一次维保是什么时候，结果怎么样',
+    ],
+};
+const examples = computed(() => EXAMPLES[mode.value]);
 /** 追问需要的历史：只取最近几轮"问答模式且有回答"的记录，按时间正序传给后端。 */
-function recentHistory(): AskTurn[] {
-  return entries.value
-    .filter((item) => item.mode === 'ask' && item.ask?.answer)
-    .slice(0, 6)
-    .reverse()
-    .map((item) => ({ question: item.question, answer: item.ask?.answer ?? null }))
+function recentHistory() {
+    return entries.value
+        .filter((item) => item.mode === 'ask' && item.ask?.answer)
+        .slice(0, 6)
+        .reverse()
+        .map((item) => ({ question: item.question, answer: item.ask?.answer ?? null }));
 }
-
-function rememberConversation(id: string | null): void {
-  conversationId.value = id
-  if (id) {
-    sessionStorage.setItem(CONVERSATION_KEY, id)
-  } else {
-    sessionStorage.removeItem(CONVERSATION_KEY)
-  }
+function rememberConversation(id) {
+    conversationId.value = id;
+    if (id) {
+        sessionStorage.setItem(CONVERSATION_KEY, id);
+    }
+    else {
+        sessionStorage.removeItem(CONVERSATION_KEY);
+    }
 }
-
 /** 清空会话：本地立即生效，服务端记忆顺手删掉（失败也不影响本地清空，服务端还有 TTL）。 */
-async function clearHistory(): Promise<void> {
-  const previous = conversationId.value
-  entries.value = []
-  rememberConversation(null)
-  if (!previous) {
-    return
-  }
-  try {
-    await forgetConversation(previous)
-  } catch (error) {
-    console.warn('清空服务端会话记忆失败', error)
-  }
+async function clearHistory() {
+    const previous = conversationId.value;
+    entries.value = [];
+    rememberConversation(null);
+    if (!previous) {
+        return;
+    }
+    try {
+        await forgetConversation(previous);
+    }
+    catch (error) {
+        console.warn('清空服务端会话记忆失败', error);
+    }
 }
-
 onMounted(async () => {
-  if (canDiagnose.value) {
-    mode.value = 'diagnosis'
-  }
-  try {
-    const dict = await getDictItems()
-    faultTypes.value = dict['故障类型'] ?? []
-    instrumentTypes.value = dict['仪器类型'] ?? []
-  } catch {
-    // 字典加载失败不影响主流程，下拉为空即可
-  }
-  if (canDiagnose.value) {
-    try {
-      equipmentOptions.value = (await listEquipment({ page: 1, page_size: 100 })).items
-    } catch {
-      equipmentOptions.value = []
+    if (canDiagnose.value) {
+        mode.value = 'diagnosis';
     }
-  }
-  if (canSeeCorpus.value) {
     try {
-      corpus.value = await getCorpusStats()
-    } catch {
-      corpus.value = null
+        const dict = await getDictItems();
+        faultTypes.value = dict['故障类型'] ?? [];
+        instrumentTypes.value = dict['仪器类型'] ?? [];
     }
-  }
-})
-
-function useExample(text: string): void {
-  question.value = text
+    catch {
+        // 字典加载失败不影响主流程，下拉为空即可
+    }
+    if (canDiagnose.value) {
+        try {
+            equipmentOptions.value = (await listEquipment({ page: 1, page_size: 100 })).items;
+        }
+        catch {
+            equipmentOptions.value = [];
+        }
+    }
+    if (canSeeCorpus.value) {
+        try {
+            corpus.value = await getCorpusStats();
+        }
+        catch {
+            corpus.value = null;
+        }
+    }
+});
+function useExample(text) {
+    question.value = text;
 }
-
 /** 引用里存的是语料文档 ID，页面上显示成 C1、C2 这种编号，鼠标悬停看标题。 */
-function citeLabel(result: DiagnosisResult, docId: string): string {
-  const match = result.matches.find((item) => item.doc_id === docId)
-  return match ? match.alias : docId
+function citeLabel(result, docId) {
+    const match = result.matches.find((item) => item.doc_id === docId);
+    return match ? match.alias : docId;
 }
-
-function citeTitle(result: DiagnosisResult, docId: string): string {
-  const match = result.matches.find((item) => item.doc_id === docId)
-  if (!match) {
-    return docId
-  }
-  const rerank = match.rerank_score === null ? '' : `，重排 ${match.rerank_score}/10`
-  return `${match.source_label}｜${match.title}（融合分 ${match.score}${rerank}）`
-}
-
-/** 检索通道的中文展示：混合、关键词，以及向量不可用时的原因。 */
-function retrievalLabel(result: DiagnosisResult): string {
-  const { mode, bm25_candidates: bm25, vector_candidates: vector } = result.retrieval
-  return mode === 'hybrid'
-    ? `混合检索（关键词 ${bm25} 条 / 向量 ${vector} 条）`
-    : `关键词检索（${bm25} 条）`
-}
-
-async function submit(): Promise<void> {
-  const text = question.value.trim()
-  if (text.length < 4) {
-    ElMessage.warning('把现象或问题描述得再具体一点（至少 4 个字）')
-    return
-  }
-
-  submitting.value = true
-  const entry: AssistantEntry = {
-    id: Date.now(),
-    mode: mode.value,
-    question: text,
-    askedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-  }
-
-  try {
-    if (entry.mode === 'diagnosis') {
-      entry.diagnosis = await diagnoseFault({
-        description: text,
-        equipment_id: equipmentId.value ?? undefined,
-        fault_type: faultType.value || undefined,
-        instrument_type: instrumentType.value || undefined,
-        top_k: 5,
-      })
-    } else {
-      entry.ask = await askQuestion({
-        question: text,
-        conversation_id: conversationId.value ?? undefined,
-        history: recentHistory(),
-      })
-      // 服务端会把会话 ID 发回来（服务端不认识的旧 ID 会换成新的）
-      rememberConversation(entry.ask.conversation_id)
+function citeTitle(result, docId) {
+    const match = result.matches.find((item) => item.doc_id === docId);
+    if (!match) {
+        return docId;
     }
-    question.value = ''
-    entries.value.unshift(entry)
-  } catch (error) {
-    entry.error = error instanceof Error ? error.message : '请求失败'
-    entries.value.unshift(entry)
-  } finally {
-    submitting.value = false
-  }
+    const rerank = match.rerank_score === null ? '' : `，重排 ${match.rerank_score}/10`;
+    return `${match.source_label}｜${match.title}（融合分 ${match.score}${rerank}）`;
+}
+/** 检索通道的中文展示：混合、关键词，以及向量不可用时的原因。 */
+function retrievalLabel(result) {
+    const { mode, bm25_candidates: bm25, vector_candidates: vector } = result.retrieval;
+    return mode === 'hybrid'
+        ? `混合检索（关键词 ${bm25} 条 / 向量 ${vector} 条）`
+        : `关键词检索（${bm25} 条）`;
+}
+async function submit() {
+    const text = question.value.trim();
+    if (text.length < 4) {
+        ElMessage.warning('把现象或问题描述得再具体一点（至少 4 个字）');
+        return;
+    }
+    submitting.value = true;
+    const entry = {
+        id: Date.now(),
+        mode: mode.value,
+        question: text,
+        askedAt: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+    };
+    try {
+        if (entry.mode === 'diagnosis') {
+            entry.diagnosis = await diagnoseFault({
+                description: text,
+                equipment_id: equipmentId.value ?? undefined,
+                fault_type: faultType.value || undefined,
+                instrument_type: instrumentType.value || undefined,
+                top_k: 5,
+            });
+        }
+        else {
+            entry.ask = await askQuestion({
+                question: text,
+                conversation_id: conversationId.value ?? undefined,
+                history: recentHistory(),
+            });
+            // 服务端会把会话 ID 发回来（服务端不认识的旧 ID 会换成新的）
+            rememberConversation(entry.ask.conversation_id);
+        }
+        question.value = '';
+        entries.value.unshift(entry);
+    }
+    catch (error) {
+        entry.error = error instanceof Error ? error.message : '请求失败';
+        entries.value.unshift(entry);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
 </script>
 

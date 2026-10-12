@@ -1,218 +1,177 @@
-<script setup lang="ts">
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, reactive, ref } from 'vue'
-
-import { getDictItems } from '@/api/dict'
-import { downloadExcel } from '@/api/export'
-import { listEquipment } from '@/api/equipment'
-import {
-  completeStep,
-  createMaintenanceOrder,
-  getMaintenanceOrder,
-  listMaintenanceOrders,
-  updateMaintenanceOrder,
-  type MaintenancePayload,
-} from '@/api/maintenance'
-import { usePagedList } from '@/composables/usePagedList'
-import AttachmentPanel from '@/components/AttachmentPanel.vue'
-import DataTable from '@/components/DataTable.vue'
-import { usePreferencesStore } from '@/store/preferences'
-import { useUserStore } from '@/store/user'
-import { compactParams } from '@/utils/params'
-import type { Equipment, MaintenanceOrder, MaintenanceStep, TableColumn } from '@/types'
-
-const store = useUserStore()
-const preferences = usePreferencesStore()
-const STATUSES = ['进行中', '已完成']
-
-const columns: TableColumn[] = [
-  { key: 'order_no', label: '工单号', width: 170 },
-  { key: 'equipment_no', label: '设备', width: 130 },
-  { key: 'level', label: '等级', width: 110 },
-  { key: 'start_date', label: '开始日期', width: 120 },
-  { key: 'end_date', label: '结束日期', width: 120 },
-  { key: 'status', label: '状态', width: 100, align: 'center' },
-  { key: 'result', label: '结果', width: 100 },
-  { key: 'oil_level', label: '油位(mm)', width: 110, align: 'right' },
-  { key: 'suggestion', label: '维保建议', minWidth: 180, tooltip: true },
-  { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
-]
-
-const filters = reactive<{ equipment_id?: number; level: string; status: string }>({
-  equipment_id: undefined,
-  level: '',
-  status: '',
-})
-const { items, total, loading, page, pageSize, load, search, changePage, changeSize } =
-  usePagedList<MaintenanceOrder, typeof filters>(filters, listMaintenanceOrders)
-
-function changePageSize(size: number): void {
-  void preferences.setPageSize(size)
-  void changeSize(size)
-}
-
-const equipmentOptions = ref<Equipment[]>([])
-const levelOptions = ref<string[]>([])
-const createVisible = ref(false)
-const detailVisible = ref(false)
-const submitting = ref(false)
-const detail = ref<MaintenanceOrder | null>(null)
-
-const createForm = reactive<{
-  equipment_id?: number
-  level: string
-  start_date: string | null
-  oil_level: string
-  suggestion: string
-}>({ equipment_id: undefined, level: '', start_date: null, oil_level: '', suggestion: '' })
-
-const editForm = reactive<{
-  level: string
-  result: string
-  oil_level: string
-  suggestion: string
-  status: string
-  end_date: string | null
-}>({ level: '', result: '', oil_level: '', suggestion: '', status: '进行中', end_date: null })
-
-const doneCount = computed(() => detail.value?.steps?.filter((step) => step.is_done).length ?? 0)
-const stepCount = computed(() => detail.value?.steps?.length ?? 0)
-
-onMounted(async () => {
-  await preferences.load()
-  pageSize.value = preferences.pageSize
-  const [dict, equipmentPage] = await Promise.all([
-    getDictItems(),
-    listEquipment({ page: 1, page_size: 100 }),
-  ])
-  levelOptions.value = dict['维保等级'] ?? []
-  createForm.level = levelOptions.value[0] ?? ''
-  equipmentOptions.value = equipmentPage.items
-  await load()
-})
-
-function openCreate(): void {
-  Object.assign(createForm, {
+<script setup>
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { getDictItems } from '@/api/dict';
+import { downloadExcel } from '@/api/export';
+import { listEquipment } from '@/api/equipment';
+import { completeStep, createMaintenanceOrder, getMaintenanceOrder, listMaintenanceOrders, updateMaintenanceOrder, } from '@/api/maintenance';
+import { usePagedList } from '@/composables/usePagedList';
+import AttachmentPanel from '@/components/AttachmentPanel.vue';
+import DataTable from '@/components/DataTable.vue';
+import { usePreferencesStore } from '@/store/preferences';
+import { useUserStore } from '@/store/user';
+import { compactParams } from '@/utils/params';
+const store = useUserStore();
+const preferences = usePreferencesStore();
+const STATUSES = ['进行中', '已完成'];
+const columns = [
+    { key: 'order_no', label: '工单号', width: 170 },
+    { key: 'equipment_no', label: '设备', width: 130 },
+    { key: 'level', label: '等级', width: 110 },
+    { key: 'start_date', label: '开始日期', width: 120 },
+    { key: 'end_date', label: '结束日期', width: 120 },
+    { key: 'status', label: '状态', width: 100, align: 'center' },
+    { key: 'result', label: '结果', width: 100 },
+    { key: 'oil_level', label: '油位(mm)', width: 110, align: 'right' },
+    { key: 'suggestion', label: '维保建议', minWidth: 180, tooltip: true },
+    { key: 'actions', label: '操作', width: 110, fixed: 'right', align: 'center' },
+];
+const filters = reactive({
     equipment_id: undefined,
-    level: levelOptions.value[0] ?? '',
-    start_date: null,
-    oil_level: '',
-    suggestion: '',
-  })
-  createVisible.value = true
+    level: '',
+    status: '',
+});
+const { items, total, loading, page, pageSize, load, search, changePage, changeSize } = usePagedList(filters, listMaintenanceOrders);
+function changePageSize(size) {
+    void preferences.setPageSize(size);
+    void changeSize(size);
 }
-
-async function submitCreate(): Promise<void> {
-  if (!createForm.equipment_id || !createForm.level) {
-    ElMessage.warning('请选择设备与维保等级')
-    return
-  }
-  submitting.value = true
-  try {
-    const order = await createMaintenanceOrder({
-      equipment_id: createForm.equipment_id,
-      level: createForm.level,
-      start_date: createForm.start_date,
-      oil_level: createForm.oil_level || null,
-      suggestion: createForm.suggestion || null,
-    })
-    ElMessage.success(`工单 ${order.order_no} 已创建，步骤清单 ${order.steps?.length ?? 0} 条`)
-    createVisible.value = false
-    await openDetail(order.id)
-    await load()
-  } catch (error) {
-    console.warn('创建工单失败', error)
-  } finally {
-    submitting.value = false
-  }
+const equipmentOptions = ref([]);
+const levelOptions = ref([]);
+const createVisible = ref(false);
+const detailVisible = ref(false);
+const submitting = ref(false);
+const detail = ref(null);
+const createForm = reactive({ equipment_id: undefined, level: '', start_date: null, oil_level: '', suggestion: '' });
+const editForm = reactive({ level: '', result: '', oil_level: '', suggestion: '', status: '进行中', end_date: null });
+const doneCount = computed(() => detail.value?.steps?.filter((step) => step.is_done).length ?? 0);
+const stepCount = computed(() => detail.value?.steps?.length ?? 0);
+onMounted(async () => {
+    await preferences.load();
+    pageSize.value = preferences.pageSize;
+    const [dict, equipmentPage] = await Promise.all([
+        getDictItems(),
+        listEquipment({ page: 1, page_size: 100 }),
+    ]);
+    levelOptions.value = dict['维保等级'] ?? [];
+    createForm.level = levelOptions.value[0] ?? '';
+    equipmentOptions.value = equipmentPage.items;
+    await load();
+});
+function openCreate() {
+    Object.assign(createForm, {
+        equipment_id: undefined,
+        level: levelOptions.value[0] ?? '',
+        start_date: null,
+        oil_level: '',
+        suggestion: '',
+    });
+    createVisible.value = true;
 }
-
-function syncEditForm(): void {
-  if (!detail.value) {
-    return
-  }
-  Object.assign(editForm, {
-    level: detail.value.level,
-    result: detail.value.result ?? '',
-    oil_level: detail.value.oil_level ?? '',
-    suggestion: detail.value.suggestion ?? '',
-    status: detail.value.status,
-    end_date: detail.value.end_date,
-  })
-}
-
-async function openDetail(orderId: number): Promise<void> {
-  detail.value = await getMaintenanceOrder(orderId)
-  syncEditForm()
-  detailVisible.value = true
-}
-
-async function toggleStep(step: MaintenanceStep, value: boolean): Promise<void> {
-  if (!detail.value) {
-    return
-  }
-  try {
-    await completeStep(detail.value.id, step.id, value)
-    detail.value = await getMaintenanceOrder(detail.value.id)
-    await load()
-  } catch (error) {
-    console.warn('更新步骤失败', error)
-  }
-}
-
-async function saveDetail(): Promise<void> {
-  if (!detail.value) {
-    return
-  }
-  const payload: MaintenancePayload = {
-    result: editForm.result || null,
-    oil_level: editForm.oil_level || null,
-    suggestion: editForm.suggestion || null,
-    status: editForm.status,
-    end_date: editForm.end_date,
-  }
-  if (editForm.level !== detail.value.level) {
-    try {
-      await ElMessageBox.confirm(
-        `改为「${editForm.level}」会按新等级重建步骤清单，已勾选的步骤记录会清空。确定继续吗？`,
-        '等级变更',
-        { type: 'warning' },
-      )
-    } catch {
-      editForm.level = detail.value.level
-      return
+async function submitCreate() {
+    if (!createForm.equipment_id || !createForm.level) {
+        ElMessage.warning('请选择设备与维保等级');
+        return;
     }
-    payload.level = editForm.level
-  }
-
-  submitting.value = true
-  try {
-    detail.value = await updateMaintenanceOrder(detail.value.id, payload)
-    syncEditForm()
-    ElMessage.success('工单已保存')
-    await load()
-  } catch (error) {
-    console.warn('保存工单失败', error)
-  } finally {
-    submitting.value = false
-  }
+    submitting.value = true;
+    try {
+        const order = await createMaintenanceOrder({
+            equipment_id: createForm.equipment_id,
+            level: createForm.level,
+            start_date: createForm.start_date,
+            oil_level: createForm.oil_level || null,
+            suggestion: createForm.suggestion || null,
+        });
+        ElMessage.success(`工单 ${order.order_no} 已创建，步骤清单 ${order.steps?.length ?? 0} 条`);
+        createVisible.value = false;
+        await openDetail(order.id);
+        await load();
+    }
+    catch (error) {
+        console.warn('创建工单失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
 }
-
-async function exportExcel(): Promise<void> {
-  try {
-    await downloadExcel(
-      '/maintenance-orders/export',
-      compactParams({
-        equipment_id: filters.equipment_id,
-        level: filters.level,
-        status: filters.status,
-      }),
-      '维保工单.xlsx',
-    )
-    ElMessage.success('导出已开始，请查看浏览器下载')
-  } catch (error) {
-    console.warn('导出失败', error)
-  }
+function syncEditForm() {
+    if (!detail.value) {
+        return;
+    }
+    Object.assign(editForm, {
+        level: detail.value.level,
+        result: detail.value.result ?? '',
+        oil_level: detail.value.oil_level ?? '',
+        suggestion: detail.value.suggestion ?? '',
+        status: detail.value.status,
+        end_date: detail.value.end_date,
+    });
+}
+async function openDetail(orderId) {
+    detail.value = await getMaintenanceOrder(orderId);
+    syncEditForm();
+    detailVisible.value = true;
+}
+async function toggleStep(step, value) {
+    if (!detail.value) {
+        return;
+    }
+    try {
+        await completeStep(detail.value.id, step.id, value);
+        detail.value = await getMaintenanceOrder(detail.value.id);
+        await load();
+    }
+    catch (error) {
+        console.warn('更新步骤失败', error);
+    }
+}
+async function saveDetail() {
+    if (!detail.value) {
+        return;
+    }
+    const payload = {
+        result: editForm.result || null,
+        oil_level: editForm.oil_level || null,
+        suggestion: editForm.suggestion || null,
+        status: editForm.status,
+        end_date: editForm.end_date,
+    };
+    if (editForm.level !== detail.value.level) {
+        try {
+            await ElMessageBox.confirm(`改为「${editForm.level}」会按新等级重建步骤清单，已勾选的步骤记录会清空。确定继续吗？`, '等级变更', { type: 'warning' });
+        }
+        catch {
+            editForm.level = detail.value.level;
+            return;
+        }
+        payload.level = editForm.level;
+    }
+    submitting.value = true;
+    try {
+        detail.value = await updateMaintenanceOrder(detail.value.id, payload);
+        syncEditForm();
+        ElMessage.success('工单已保存');
+        await load();
+    }
+    catch (error) {
+        console.warn('保存工单失败', error);
+    }
+    finally {
+        submitting.value = false;
+    }
+}
+async function exportExcel() {
+    try {
+        await downloadExcel('/maintenance-orders/export', compactParams({
+            equipment_id: filters.equipment_id,
+            level: filters.level,
+            status: filters.status,
+        }), '维保工单.xlsx');
+        ElMessage.success('导出已开始，请查看浏览器下载');
+    }
+    catch (error) {
+        console.warn('导出失败', error);
+    }
 }
 </script>
 
