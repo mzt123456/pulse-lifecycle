@@ -42,7 +42,7 @@ async function submit() {
   <div class="login-page">
     <div class="login-card">
       <h1 class="login-title">剪切阀脉冲器全生命周期管理系统</h1>
-      <p class="login-subtitle">某能源装备企业</p>
+      <p class="login-subtitle">设备全生命周期管理 · 演示环境</p>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="submit">
         <el-form-item label="登录名" prop="username">

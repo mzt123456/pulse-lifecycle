@@ -45,3 +45,7 @@ Thumbs.db
 
 # 文档生成用的中转目录
 .work/
+
+# 甲方交付文档与其它不进版本库的内部材料
+private/
+docs/*.docx

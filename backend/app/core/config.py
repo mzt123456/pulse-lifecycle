@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    app_name: str = "某能源装备企业维保管理系统"
+    app_name: str = "剪切阀脉冲器全生命周期管理系统"
     app_version: str = "3.0.0"
     app_env: str = "dev"
     log_level: str = "INFO"

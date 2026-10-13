@@ -62,7 +62,7 @@ async function handleLogout() {
           {{ item.title }}
         </el-menu-item>
       </el-menu>
-      <div class="admin-aside-note">某能源装备企业 · 设备维保管理</div>
+      <div class="admin-aside-note">设备维保管理 · 演示环境</div>
     </el-aside>
 
     <el-container>
