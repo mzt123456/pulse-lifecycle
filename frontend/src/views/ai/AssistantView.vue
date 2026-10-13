@@ -191,7 +191,7 @@ async function submit() {
       <el-input
         v-model="question"
         type="textarea"
-        :autosize="{ minRows: 4, maxRows: 12 }"
+        :autosize="{ minRows: 6, maxRows: 14 }"
         maxlength="500"
         show-word-limit
         :placeholder="
