@@ -191,7 +191,7 @@ async function submit() {
       <el-input
         v-model="question"
         type="textarea"
-        :rows="3"
+        :autosize="{ minRows: 4, maxRows: 12 }"
         maxlength="500"
         show-word-limit
         :placeholder="
@@ -254,199 +254,217 @@ async function submit() {
       </div>
     </div>
 
-    <div v-for="entry in entries" :key="entry.id" class="page-card assistant-entry">
-      <div class="assistant-entry-head">
-        <el-tag size="small" :type="entry.mode === 'diagnosis' ? 'primary' : 'success'">
-          {{ entry.mode === 'diagnosis' ? '故障诊断' : '数据问答' }}
-        </el-tag>
-        <span class="assistant-question">{{ entry.question }}</span>
-        <span class="assistant-time">{{ entry.askedAt }}</span>
+    <div class="assistant-results">
+      <div v-if="!entries.length" class="page-card assistant-placeholder">
+        <div class="assistant-placeholder-title">
+          {{ mode === 'diagnosis' ? '描述现场现象，开始一次故障诊断' : '用一句业务问题开始对话' }}
+        </div>
+        <div class="assistant-placeholder-hint">
+          可以直接点上面的示例；诊断结果会带案例引用，数据问答会展示工具调用过程与上下文规模。
+        </div>
       </div>
 
-      <el-alert v-if="entry.error" type="error" :closable="false" :title="entry.error" />
-
-      <!-- 故障诊断结果 -->
-      <template v-if="entry.diagnosis">
-        <el-alert
-          v-if="entry.diagnosis.degraded"
-          type="warning"
-          :closable="false"
-          :title="entry.diagnosis.reason || '已降级为相似案例检索'"
-          class="assistant-alert"
-        />
-        <el-alert
-          v-if="entry.diagnosis.filter_relaxed"
-          type="info"
-          :closable="false"
-          title="按条件没有命中，已自动放宽过滤范围"
-          class="assistant-alert"
-        />
-        <el-alert
-          v-if="entry.diagnosis.retrieval.note"
-          type="info"
-          :closable="false"
-          :title="entry.diagnosis.retrieval.note"
-          class="assistant-alert"
-        />
-        <el-alert
-          v-if="entry.diagnosis.rerank.degraded"
-          type="warning"
-          :closable="false"
-          title="相关性重排本次未生效，候选按原顺序保留，结论请谨慎采用"
-          class="assistant-alert"
-        />
-
-        <div class="assistant-meta">
-          <el-tag v-if="entry.diagnosis.confidence" size="small" type="warning">
-            置信度 {{ entry.diagnosis.confidence }}
+      <div v-for="entry in entries" :key="entry.id" class="page-card assistant-entry">
+        <div class="assistant-entry-head">
+          <el-tag size="small" :type="entry.mode === 'diagnosis' ? 'primary' : 'success'">
+            {{ entry.mode === 'diagnosis' ? '故障诊断' : '数据问答' }}
           </el-tag>
-          <el-tag size="small" type="info">{{ retrievalLabel(entry.diagnosis) }}</el-tag>
-          <span v-if="entry.diagnosis.rerank.applied">
-            重排保留 {{ entry.diagnosis.rerank.kept }} / 丢弃 {{ entry.diagnosis.rerank.dropped }}
-          </span>
-          <span>耗时 {{ entry.diagnosis.elapsed_ms }} ms</span>
-          <span v-if="entry.diagnosis.model">模型 {{ entry.diagnosis.model }}</span>
-          <span v-if="entry.diagnosis.usage">
-            token {{ entry.diagnosis.usage.total_tokens }}
-          </span>
+          <span class="assistant-question">{{ entry.question }}</span>
+          <span class="assistant-time">{{ entry.askedAt }}</span>
         </div>
 
-        <template v-if="entry.diagnosis.found">
-          <div class="assistant-section">
-            <div class="assistant-section-title">可能原因</div>
-            <ul class="assistant-list">
-              <li v-for="(item, index) in entry.diagnosis.causes" :key="index">
-                {{ item.text }}
-                <el-tooltip
-                  v-for="docId in item.case_ids"
-                  :key="docId"
-                  :content="citeTitle(entry.diagnosis, docId)"
-                  placement="top"
-                >
-                  <span class="assistant-cite">{{ citeLabel(entry.diagnosis, docId) }}</span>
-                </el-tooltip>
-              </li>
-            </ul>
-          </div>
+        <el-alert v-if="entry.error" type="error" :closable="false" :title="entry.error" />
 
-          <div v-if="entry.diagnosis.actions.length" class="assistant-section">
-            <div class="assistant-section-title">建议处置</div>
-            <ul class="assistant-list">
-              <li v-for="(item, index) in entry.diagnosis.actions" :key="index">
-                {{ item.text }}
-                <el-tooltip
-                  v-for="docId in item.case_ids"
-                  :key="docId"
-                  :content="citeTitle(entry.diagnosis, docId)"
-                  placement="top"
-                >
-                  <span class="assistant-cite">{{ citeLabel(entry.diagnosis, docId) }}</span>
-                </el-tooltip>
-              </li>
-            </ul>
-          </div>
+        <!-- 故障诊断结果 -->
+        <template v-if="entry.diagnosis">
+          <el-alert
+            v-if="entry.diagnosis.degraded"
+            type="warning"
+            :closable="false"
+            :title="entry.diagnosis.reason || '已降级为相似案例检索'"
+            class="assistant-alert"
+          />
+          <el-alert
+            v-if="entry.diagnosis.filter_relaxed"
+            type="info"
+            :closable="false"
+            title="按条件没有命中，已自动放宽过滤范围"
+            class="assistant-alert"
+          />
+          <el-alert
+            v-if="entry.diagnosis.retrieval.note"
+            type="info"
+            :closable="false"
+            :title="entry.diagnosis.retrieval.note"
+            class="assistant-alert"
+          />
+          <el-alert
+            v-if="entry.diagnosis.rerank.degraded"
+            type="warning"
+            :closable="false"
+            title="相关性重排本次未生效，候选按原顺序保留，结论请谨慎采用"
+            class="assistant-alert"
+          />
 
-          <div v-if="entry.diagnosis.note" class="assistant-note">{{ entry.diagnosis.note }}</div>
-        </template>
-        <div v-else class="assistant-empty">
-          知识库里没有与这段描述相似的案例{{ entry.diagnosis.reason ? `（${entry.diagnosis.reason}）` : '' }}，
-          因此没有给出原因推测。
-        </div>
-
-        <el-collapse v-if="entry.diagnosis.matches.length" class="assistant-collapse">
-          <el-collapse-item :title="`检索到的相似案例（${entry.diagnosis.matches.length} 条）`">
-            <el-table :data="entry.diagnosis.matches" size="small" border>
-              <el-table-column prop="alias" label="编号" width="70" align="center" />
-              <el-table-column prop="source_label" label="来源" width="110" />
-              <el-table-column prop="title" label="案例" min-width="220" show-overflow-tooltip />
-              <el-table-column prop="score" label="融合分" width="90" align="right" />
-              <el-table-column label="重排分" width="90" align="right">
-                <template #default="{ row }">
-                  <el-tooltip v-if="row.rerank_score !== null" :content="row.rerank_reason || '重排未给出理由'" placement="top">
-                    <span>{{ row.rerank_score }}/10</span>
-                  </el-tooltip>
-                  <span v-else>—</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="命中词" min-width="140">
-                <template #default="{ row }">
-                  {{ row.matched_terms.length ? row.matched_terms.join('、') : '（向量命中）' }}
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-collapse-item>
-        </el-collapse>
-      </template>
-
-      <!-- 数据问答结果 -->
-      <template v-if="entry.ask">
-        <el-alert
-          v-if="entry.ask.degraded"
-          type="warning"
-          :closable="false"
-          :title="entry.ask.reason || '本次回答已降级'"
-          class="assistant-alert"
-        />
-
-        <div class="assistant-meta">
-          <el-tag v-if="entry.ask.skill" size="small">技能 {{ entry.ask.skill }}</el-tag>
-          <span>耗时 {{ entry.ask.elapsed_ms }} ms</span>
-          <span v-if="entry.ask.model">模型 {{ entry.ask.model }}</span>
-          <el-tooltip
-            v-if="entry.ask.history_turns"
-            :content="
-              entry.ask.memory_source === 'server'
-                ? `服务端短期记忆，会话 ${entry.ask.conversation_id}`
-                : '服务端没有这个会话（例如服务刚重启），本轮用随请求带来的历史兜底'
-            "
-            placement="top"
-          >
-            <span>
-              带入 {{ entry.ask.history_turns }} 轮
-              {{ entry.ask.memory_source === 'server' ? '服务端记忆' : '历史' }}
+          <div class="assistant-meta">
+            <el-tag v-if="entry.diagnosis.confidence" size="small" type="warning">
+              置信度 {{ entry.diagnosis.confidence }}
+            </el-tag>
+            <el-tag size="small" type="info">{{ retrievalLabel(entry.diagnosis) }}</el-tag>
+            <span v-if="entry.diagnosis.rerank.applied">
+              重排保留 {{ entry.diagnosis.rerank.kept }} / 丢弃 {{ entry.diagnosis.rerank.dropped }}
             </span>
-          </el-tooltip>
-          <el-tooltip
-            :content="`技能索引常驻 ${entry.ask.context_chars.skill_index} 字；若把全部技能正文与参考资料一次装入，需要 ${entry.ask.context_chars.all_skills_full} 字；本次历史问答占用 ${entry.ask.context_chars.history} 字`"
-            placement="top"
-          >
-            <span>上下文 {{ entry.ask.context_chars.system_prompt }} 字</span>
-          </el-tooltip>
-        </div>
+            <span>耗时 {{ entry.diagnosis.elapsed_ms }} ms</span>
+            <span v-if="entry.diagnosis.model">模型 {{ entry.diagnosis.model }}</span>
+            <span v-if="entry.diagnosis.usage">
+              token {{ entry.diagnosis.usage.total_tokens }}
+            </span>
+          </div>
 
-        <div v-if="entry.ask.answer" class="assistant-answer">
-          <MarkdownText :text="entry.ask.answer" />
-        </div>
-        <div v-else class="assistant-empty">本次没有生成回答，请根据下方工具调用结果判断。</div>
+          <template v-if="entry.diagnosis.found">
+            <div class="assistant-section">
+              <div class="assistant-section-title">可能原因</div>
+              <ul class="assistant-list">
+                <li v-for="(item, index) in entry.diagnosis.causes" :key="index">
+                  {{ item.text }}
+                  <el-tooltip
+                    v-for="docId in item.case_ids"
+                    :key="docId"
+                    :content="citeTitle(entry.diagnosis, docId)"
+                    placement="top"
+                  >
+                    <span class="assistant-cite">{{ citeLabel(entry.diagnosis, docId) }}</span>
+                  </el-tooltip>
+                </li>
+              </ul>
+            </div>
 
-        <el-collapse v-if="entry.ask.steps.length" class="assistant-collapse">
-          <el-collapse-item :title="`工具调用（${entry.ask.steps.length} 次：${entry.ask.used_tools.join('、')}）`">
-            <el-timeline>
-              <el-timeline-item
-                v-for="(step, index) in entry.ask.steps"
-                :key="index"
-                :type="step.ok ? 'primary' : 'warning'"
-                :timestamp="`${step.elapsed_ms} ms`"
-              >
-                <span class="mono assistant-tool">{{ step.tool }}</span>
-                <span class="assistant-tool-args">{{ JSON.stringify(step.arguments) }}</span>
-                <div class="assistant-tool-summary">{{ step.summary }}</div>
-              </el-timeline-item>
-            </el-timeline>
-          </el-collapse-item>
-        </el-collapse>
-      </template>
+            <div v-if="entry.diagnosis.actions.length" class="assistant-section">
+              <div class="assistant-section-title">建议处置</div>
+              <ul class="assistant-list">
+                <li v-for="(item, index) in entry.diagnosis.actions" :key="index">
+                  {{ item.text }}
+                  <el-tooltip
+                    v-for="docId in item.case_ids"
+                    :key="docId"
+                    :content="citeTitle(entry.diagnosis, docId)"
+                    placement="top"
+                  >
+                    <span class="assistant-cite">{{ citeLabel(entry.diagnosis, docId) }}</span>
+                  </el-tooltip>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="entry.diagnosis.note" class="assistant-note">{{ entry.diagnosis.note }}</div>
+          </template>
+          <div v-else class="assistant-empty">
+            知识库里没有与这段描述相似的案例{{ entry.diagnosis.reason ? `（${entry.diagnosis.reason}）` : '' }}，
+            因此没有给出原因推测。
+          </div>
+
+          <el-collapse v-if="entry.diagnosis.matches.length" class="assistant-collapse">
+            <el-collapse-item :title="`检索到的相似案例（${entry.diagnosis.matches.length} 条）`">
+              <el-table :data="entry.diagnosis.matches" size="small" border>
+                <el-table-column prop="alias" label="编号" width="70" align="center" />
+                <el-table-column prop="source_label" label="来源" width="110" />
+                <el-table-column prop="title" label="案例" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="score" label="融合分" width="90" align="right" />
+                <el-table-column label="重排分" width="90" align="right">
+                  <template #default="{ row }">
+                    <el-tooltip v-if="row.rerank_score !== null" :content="row.rerank_reason || '重排未给出理由'" placement="top">
+                      <span>{{ row.rerank_score }}/10</span>
+                    </el-tooltip>
+                    <span v-else>—</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="命中词" min-width="140">
+                  <template #default="{ row }">
+                    {{ row.matched_terms.length ? row.matched_terms.join('、') : '（向量命中）' }}
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+
+        <!-- 数据问答结果 -->
+        <template v-if="entry.ask">
+          <el-alert
+            v-if="entry.ask.degraded"
+            type="warning"
+            :closable="false"
+            :title="entry.ask.reason || '本次回答已降级'"
+            class="assistant-alert"
+          />
+
+          <div class="assistant-meta">
+            <el-tag v-if="entry.ask.skill" size="small">技能 {{ entry.ask.skill }}</el-tag>
+            <span>耗时 {{ entry.ask.elapsed_ms }} ms</span>
+            <span v-if="entry.ask.model">模型 {{ entry.ask.model }}</span>
+            <el-tooltip
+              v-if="entry.ask.history_turns"
+              :content="
+                entry.ask.memory_source === 'server'
+                  ? `服务端短期记忆，会话 ${entry.ask.conversation_id}`
+                  : '服务端没有这个会话（例如服务刚重启），本轮用随请求带来的历史兜底'
+              "
+              placement="top"
+            >
+              <span>
+                带入 {{ entry.ask.history_turns }} 轮
+                {{ entry.ask.memory_source === 'server' ? '服务端记忆' : '历史' }}
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              :content="`技能索引常驻 ${entry.ask.context_chars.skill_index} 字；若把全部技能正文与参考资料一次装入，需要 ${entry.ask.context_chars.all_skills_full} 字；本次历史问答占用 ${entry.ask.context_chars.history} 字`"
+              placement="top"
+            >
+              <span>上下文 {{ entry.ask.context_chars.system_prompt }} 字</span>
+            </el-tooltip>
+          </div>
+
+          <div v-if="entry.ask.answer" class="assistant-answer">
+            <MarkdownText :text="entry.ask.answer" />
+          </div>
+          <div v-else class="assistant-empty">本次没有生成回答，请根据下方工具调用结果判断。</div>
+
+          <el-collapse v-if="entry.ask.steps.length" class="assistant-collapse">
+            <el-collapse-item :title="`工具调用（${entry.ask.steps.length} 次：${entry.ask.used_tools.join('、')}）`">
+              <el-timeline>
+                <el-timeline-item
+                  v-for="(step, index) in entry.ask.steps"
+                  :key="index"
+                  :type="step.ok ? 'primary' : 'warning'"
+                  :timestamp="`${step.elapsed_ms} ms`"
+                >
+                  <span class="mono assistant-tool">{{ step.tool }}</span>
+                  <span class="assistant-tool-args">{{ JSON.stringify(step.arguments) }}</span>
+                  <div class="assistant-tool-summary">{{ step.summary }}</div>
+                </el-timeline-item>
+              </el-timeline>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 整页撑满视口：内容少时也不留大片空白（减去顶栏 60、主区上下内边距与面包屑约 90） */
+.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: calc(100vh - 150px);
+}
+
 .assistant-bar {
   display: flex;
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
 }
 
 .assistant-hint {
@@ -458,10 +476,6 @@ async function submit() {
   margin-left: auto;
   display: flex;
   gap: 6px;
-}
-
-.assistant-bar + .page-card {
-  margin-bottom: 14px;
 }
 
 .assistant-filters {
@@ -485,8 +499,37 @@ async function submit() {
   color: #95a5a6;
 }
 
-.assistant-entry {
-  margin-bottom: 14px;
+/* 结果区占满剩余高度：有结果就自然排下去，没结果时用引导卡片把版面撑住 */
+.assistant-results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.assistant-placeholder {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 240px;
+  text-align: center;
+}
+
+.assistant-placeholder-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.assistant-placeholder-hint {
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #95a5a6;
 }
 
 .assistant-entry-head {
