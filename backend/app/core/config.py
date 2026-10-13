@@ -66,7 +66,8 @@ class Settings(BaseSettings):
     # 初始化数据用的管理员账号；口令留空时种子脚本会拒绝创建
     initial_admin_username: str = "admin"
     initial_admin_password: str = ""
-    initial_admin_name: str = "系统管理员"
+    # 姓名是"人"，不要与角色同名：页面右上角会同时显示姓名与角色，写成「系统管理员」会重复两遍
+    initial_admin_name: str = "李明"
 
     # 工单号规则：前缀 + 年月日 + 三位序号（编写报告 14.1）
     maintenance_order_prefix: str = "WX"
