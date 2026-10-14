@@ -113,7 +113,7 @@ async function resetColumns() {
   display: flex;
   gap: 8px;
   font-size: 13px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .column-hint {

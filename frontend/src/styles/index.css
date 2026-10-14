@@ -1,5 +1,5 @@
 :root {
-  /* 配色沿用单机版的视觉识别，见编写报告 6.1 */
+  /* 主配色：沿用单机版的视觉识别，色值与变量名见编写报告 6.1 的颜色规范表 */
   --color-primary: #2c3e50;
   --color-bg: #ecf0f1;
   --color-surface: #ffffff;
@@ -9,11 +9,53 @@
   --color-warning: #e67e22;
   --color-danger: #e74c3c;
   --color-muted: #bdc3c7;
+  --color-on-primary: #ffffff;
 
+  /* 辅助灰阶与浅填充：6.1 只列了一个辅助灰，实际界面还需要更细的分层，
+     统一收在这里，组件里不要再写死色值 */
+  --color-text-secondary: #7f8c8d; /* 次要文字：说明、参数、时间戳 */
+  --color-text-placeholder: #95a5a6; /* 弱化提示：示例标签、占位、空状态 */
+  --color-border: #d9d9d9; /* 卡片、表格与分隔线 */
+  --color-border-light: #dcdfe6; /* 更浅的边框：代码块、行内代码 */
+  --color-fill: #f7f9fa; /* 轻填充：回答块、空状态 */
+  --color-fill-subtle: #f0f2f5; /* 代码块底色 */
+  --color-fill-hover: #f5f7fa; /* 悬停底色 */
+  --color-fill-accent: #eaf3fa; /* 强调蓝的极浅底色：引用标签 */
+  --color-on-primary-muted: #d5dbdb; /* 深色侧栏上的次要文字 */
+
+  /* Element Plus 主题：只覆盖主色不够——hover、禁用态与浅色标签走的是 light/dark 派生变量，
+     不覆盖就会退回 Element Plus 自带的蓝。下面这批是按同比例算出来的。 */
   --el-color-primary: #2980b9;
+  --el-color-primary-light-3: #69a6ce;
+  --el-color-primary-light-5: #94c0dc;
+  --el-color-primary-light-7: #bfd9ea;
+  --el-color-primary-light-8: #d4e6f1;
+  --el-color-primary-light-9: #eaf2f8;
+  --el-color-primary-dark-2: #216694;
+
   --el-color-success: #27ae60;
+  --el-color-success-light-3: #68c690;
+  --el-color-success-light-5: #93d6b0;
+  --el-color-success-light-7: #bee7cf;
+  --el-color-success-light-8: #d4efdf;
+  --el-color-success-light-9: #e9f7ef;
+  --el-color-success-dark-2: #1f8b4d;
+
   --el-color-warning: #e67e22;
+  --el-color-warning-light-3: #eea564;
+  --el-color-warning-light-5: #f2be90;
+  --el-color-warning-light-7: #f8d8bd;
+  --el-color-warning-light-8: #fae5d3;
+  --el-color-warning-light-9: #fcf2e9;
+  --el-color-warning-dark-2: #b8651b;
+
   --el-color-danger: #e74c3c;
+  --el-color-danger-light-3: #ee8276;
+  --el-color-danger-light-5: #f3a69e;
+  --el-color-danger-light-7: #f8c9c4;
+  --el-color-danger-light-8: #fadbd8;
+  --el-color-danger-light-9: #fdedec;
+  --el-color-danger-dark-2: #b93d30;
 }
 
 * {
@@ -41,7 +83,7 @@ body {
 
 .page-card {
   background: var(--color-surface);
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
   padding: 18px 20px;
 }

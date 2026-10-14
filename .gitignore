@@ -49,3 +49,6 @@ Thumbs.db
 # 甲方交付文档与其它不进版本库的内部材料
 private/
 docs/*.docx
+
+# 其它会话产出的分析文件（与本项目无关，别误提交）
+outputs/

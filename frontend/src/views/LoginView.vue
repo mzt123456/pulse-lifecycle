@@ -95,7 +95,7 @@ async function submit() {
 .login-subtitle {
   margin: 6px 0 22px;
   font-size: 13px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
   text-align: center;
 }
 

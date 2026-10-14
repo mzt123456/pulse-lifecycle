@@ -52,18 +52,18 @@ const rendered = computed(() => md.render(props.text ?? ''));
 .markdown :deep(th),
 .markdown :deep(td) {
   padding: 5px 10px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--color-border-light);
   text-align: left;
 }
 
 .markdown :deep(th) {
-  background: #f5f7fa;
+  background: var(--color-fill-hover);
   font-weight: 600;
 }
 
 .markdown :deep(code) {
   padding: 1px 5px;
-  background: #f0f2f5;
+  background: var(--color-fill-subtle);
   border-radius: 3px;
   font-family: Consolas, 'Courier New', monospace;
   font-size: 13px;
@@ -72,7 +72,7 @@ const rendered = computed(() => md.render(props.text ?? ''));
 .markdown :deep(blockquote) {
   margin: 8px 0;
   padding: 4px 12px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
   border-left: 3px solid var(--color-muted);
 }
 </style>

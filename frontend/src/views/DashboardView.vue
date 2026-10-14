@@ -94,7 +94,7 @@ onMounted(async () => {
   padding: 16px 18px;
   cursor: pointer;
   background: var(--color-surface);
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
 }
 
@@ -104,7 +104,7 @@ onMounted(async () => {
 
 .stat-label {
   font-size: 13px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .stat-value {

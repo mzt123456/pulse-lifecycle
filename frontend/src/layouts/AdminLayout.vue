@@ -107,7 +107,7 @@ async function handleLogout() {
   flex-direction: column;
   overflow: hidden;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .admin-brand {
@@ -128,18 +128,18 @@ async function handleLogout() {
 }
 
 .admin-menu :deep(.el-menu-item) {
-  color: #d5dbdb;
+  color: var(--color-on-primary-muted);
 }
 
 .admin-menu :deep(.el-menu-item.is-active) {
-  color: #fff;
+  color: var(--color-on-primary);
   background: rgb(41 128 185 / 65%);
 }
 
 .admin-aside-note {
   padding: 12px 16px;
   font-size: 12px;
-  color: #95a5a6;
+  color: var(--color-text-placeholder);
 }
 
 .admin-header {
@@ -147,7 +147,7 @@ async function handleLogout() {
   align-items: center;
   justify-content: space-between;
   background: var(--color-surface);
-  border-bottom: 1px solid #d9d9d9;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .admin-header-title {
@@ -175,7 +175,7 @@ async function handleLogout() {
 .admin-user-roles {
   margin-left: 8px;
   font-size: 12px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .admin-main {

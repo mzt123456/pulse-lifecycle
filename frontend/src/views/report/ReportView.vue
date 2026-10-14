@@ -218,13 +218,13 @@ onMounted(load);
   flex: 1;
   padding: 16px 18px;
   background: var(--color-surface);
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--color-border);
   border-radius: 4px;
 }
 
 .stat-label {
   font-size: 13px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .stat-value {
@@ -256,7 +256,7 @@ onMounted(load);
 .formula {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .sub-title {

@@ -469,7 +469,7 @@ async function submit() {
 
 .assistant-hint {
   font-size: 12px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .assistant-corpus {
@@ -496,7 +496,7 @@ async function submit() {
 
 .assistant-examples-label {
   font-size: 12px;
-  color: #95a5a6;
+  color: var(--color-text-placeholder);
 }
 
 /* 结果区占满剩余高度：有结果就自然排下去，没结果时用引导卡片把版面撑住 */
@@ -522,14 +522,14 @@ async function submit() {
 .assistant-placeholder-title {
   font-size: 15px;
   font-weight: 600;
-  color: #2c3e50;
+  color: var(--color-text);
 }
 
 .assistant-placeholder-hint {
   max-width: 520px;
   font-size: 12px;
   line-height: 1.8;
-  color: #95a5a6;
+  color: var(--color-text-placeholder);
 }
 
 .assistant-entry-head {
@@ -546,7 +546,7 @@ async function submit() {
 .assistant-time {
   margin-left: auto;
   font-size: 12px;
-  color: #95a5a6;
+  color: var(--color-text-placeholder);
 }
 
 .assistant-alert {
@@ -560,7 +560,7 @@ async function submit() {
   flex-wrap: wrap;
   margin-bottom: 12px;
   font-size: 12px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 
 .assistant-section {
@@ -585,7 +585,7 @@ async function submit() {
   padding: 0 6px;
   font-size: 12px;
   color: var(--color-accent);
-  background: #eaf3fa;
+  background: var(--color-fill-accent);
   border-radius: 3px;
   cursor: help;
 }
@@ -593,21 +593,21 @@ async function submit() {
 .assistant-note {
   padding: 8px 12px;
   font-size: 13px;
-  color: #7f8c8d;
-  background: #f7f9fa;
+  color: var(--color-text-secondary);
+  background: var(--color-fill);
   border-left: 3px solid var(--color-muted);
 }
 
 .assistant-answer {
   padding: 12px 14px;
-  background: #f7f9fa;
+  background: var(--color-fill);
   border-left: 3px solid var(--color-accent);
 }
 
 .assistant-empty {
   padding: 12px 14px;
-  color: #7f8c8d;
-  background: #f7f9fa;
+  color: var(--color-text-secondary);
+  background: var(--color-fill);
 }
 
 .assistant-collapse {
@@ -621,11 +621,11 @@ async function submit() {
 .assistant-tool-args {
   margin-left: 8px;
   font-size: 12px;
-  color: #95a5a6;
+  color: var(--color-text-placeholder);
 }
 
 .assistant-tool-summary {
   font-size: 12px;
-  color: #7f8c8d;
+  color: var(--color-text-secondary);
 }
 </style>
