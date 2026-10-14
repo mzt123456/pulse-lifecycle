@@ -23,3 +23,41 @@ export async function downloadAttachment(id, fileName) {
     const blob = (await http.get(`/attachments/${id}`, { responseType: 'blob' }));
     triggerDownload(blob, fileName);
 }
+
+// ------------------------------------------------------------- 用户与权限管理
+
+export function listUsers(params) {
+    return request({ url: '/system/users', method: 'get', params });
+}
+
+export function createUser(payload) {
+    return request({ url: '/system/users', method: 'post', data: payload });
+}
+
+export function updateUser(id, payload) {
+    return request({ url: `/system/users/${id}`, method: 'put', data: payload });
+}
+
+export function resetUserPassword(id, password) {
+    return request({ url: `/system/users/${id}/password`, method: 'post', data: { password } });
+}
+
+export function listRoles() {
+    return request({ url: '/system/roles', method: 'get' });
+}
+
+export function createRole(payload) {
+    return request({ url: '/system/roles', method: 'post', data: payload });
+}
+
+export function updateRole(id, payload) {
+    return request({ url: `/system/roles/${id}`, method: 'put', data: payload });
+}
+
+export function deleteRole(id) {
+    return request({ url: `/system/roles/${id}`, method: 'delete' });
+}
+
+export function listPermissions() {
+    return request({ url: '/system/permissions', method: 'get' });
+}

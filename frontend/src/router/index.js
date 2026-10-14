@@ -55,6 +55,12 @@ const routes = [
                 meta: { title: '审计日志' },
             },
             {
+                path: 'users',
+                name: 'users',
+                component: () => import('@/views/system/UserList.vue'),
+                meta: { title: '用户与权限' },
+            },
+            {
                 path: 'reports',
                 name: 'reports',
                 component: () => import('@/views/report/ReportView.vue'),

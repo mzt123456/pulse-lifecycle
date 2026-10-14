@@ -21,6 +21,8 @@ const MENUS = [
     { path: '/consumables', title: '耗材管理', permission: 'consumable.view' },
     { path: '/reports', title: '报表中心', permission: 'report.view' },
     { path: '/audit-logs', title: '审计日志', permission: 'system.audit' },
+    // 账号、角色与权限点维护，只有持有 user.manage 的账号可见
+    { path: '/users', title: '用户与权限', permission: 'user.manage' },
     // 知识库是智能助手的语料来源，按 knowledge.view 控制可见性
     { path: '/knowledge', title: '知识库', permission: 'knowledge.view' },
     // 智能助手对登录用户可见：诊断能力需要 fault.view，页内会按权限隐藏该模式
